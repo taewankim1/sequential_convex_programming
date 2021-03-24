@@ -7,7 +7,4 @@ This reposit is the implementation of successive convexification in Python. The 
 
 ## TODO
 * Quadratic approximation for the cost
-* Adding input&state constraints
-* Virtual control
-* Trust region
 * Integration with odeFun
