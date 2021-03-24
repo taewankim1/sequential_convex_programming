@@ -19,9 +19,9 @@ def print_np(x):
 class OptimalcontrolModel(object) :
     def __init__(self,name,ix,iu,delT) :
         self.name = name
-        self.ix = 3
-        self.iu = 2
-        self.delT = 0.1
+        self.ix = ix
+        self.iu = iu
+        self.delT = delT
 
     def forward(self) :
         print("this is in parent class")

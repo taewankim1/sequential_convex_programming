@@ -17,21 +17,23 @@ def print_np(x):
 # In[5]:
 import cost
 import model
+import IPython
 
 
 # In[7]:
 
 class Scvx:
-    def __init__(self,name,horizon,maxIter,Model,Cost):
+    def __init__(self,name,horizon,maxIter,Model,Cost,Const):
         self.name = name
         self.model = Model
+        self.const = Const
         self.cost = Cost
         self.N = horizon
         
         # cost optimization
         self.verbosity = True
-        self.lambda_nu = 1e6
-        self.tr_radius = 5
+        self.lambda_nu = 1e3
+        self.tr_radius = 10
         self.rho0 = 0
         self.rho1 = 0.25
         self.rho2 = 0.9
@@ -49,13 +51,15 @@ class Scvx:
         self.x0 = np.zeros(self.model.ix)
         self.x = np.zeros((self.N+1,self.model.ix))
         self.u = np.ones((self.N,self.model.iu))
-        self.nu = np.ones((self.N,self.model.ix))
+        self.nu = np.ones((self.N,self.model.ix)) * 1e-3
         self.xnew = np.zeros((self.N+1,self.model.ix))
         self.unew = np.zeros((self.N,self.model.iu))
         self.nunew = np.zeros((self.N,self.model.ix))
         self.Alpha = np.power(10,np.linspace(0,-3,11))
         self.fx = np.zeros((self.N,self.model.ix,self.model.ix))
         self.fu = np.zeros((self.N,self.model.ix,self.model.iu))  
+        self.hx = np.zeros((self.N+1,self.const.ih,self.const.ix))
+        self.hu = np.zeros((self.N,self.const.ih,self.const.iu))  
         self.c = np.zeros(self.N+1)
         self.cnu = np.ones(self.N)
         self.cnew = np.zeros(self.N+1)
@@ -102,38 +106,39 @@ class Scvx:
         u_new = self.u + delu 
 
         constraints = []
-        # initial condition
-        constraints.append(delx[0,:] == np.zeros(ix))
+        # boundary condition
+        constraints.append(x_new[0,:] == self.x0[0])
+        constraints.append(x_new[-1,:] == self.x0[-1])
 
         # trust region
-        # constraints.append(cvx.norm(delu,"inf") <= self.tr_radius)
+        constraints.append(cvx.norm(delu,"inf") <= self.tr_radius)
+
+        # inequality contraints
+        h = self.const.forward(self.x,np.vstack((self.u,np.zeros(2))))
+        # IPython.embed()
+        for i in range(0,N) :
+            constraints.append(h[i] + self.hx[i]@delx[i] + self.hu[i]@delu[i] <= 0)
+        constraints.append(h[N] + self.hx[N]@delx[N] <= 0)
+
 
         objective = []
         objective_vc = []
-        objective_test = []
+
         for i in range(0,N) :
-            # constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] + nu[i,:] )
-            constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] )
-            # you have to put the cost of nu.
+            constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] + nu[i,:] )
             objective.append(self.cost.estimate_cost_cvx(x_new[i],u_new[i]))
             objective_vc.append(self.lambda_nu * cvx.norm(nu[i,:],1))
-            # objective_test.append(self.cost.estimate_cost_cvx(self.x[i],self.u[i]))
             # objective_quad.append(cx[i]@delx[i] + cu[i]@delu[i] + 
             #                     0.5*cvx.quad_form(delx[i],cxx[i]) + 
             #                     0.5*cvx.quad_form(delu[i],cuu[i]))# + delx[i]@cxu[i]@delu[i])
         objective.append(self.cost.estimate_cost_cvx(x_new[N],np.zeros(iu)))
-        # objective_test.append(self.cost.estimate_cost_cvx(self.x[N],np.zeros(iu)))
 
         l = cvx.sum(objective)
         l_vc = cvx.sum(objective_vc)
-        l_test = cvx.sum(objective_test)
+
         objective_all = l + l_vc
         prob = cvx.Problem(cvx.Minimize(objective_all), constraints)
         prob.solve(solver=cvx.MOSEK)
-
-        # cost_test = np.sum(self.cost.estimate_cost(self.x[:N],self.u[:N])) + \
-        #             np.sum(self.cost.estimate_cost(self.x[N],np.zeros(iu)))
-        # print(l.value, cost_test, l_test.value,prob.status)
 
         return prob.status,l.value,l_vc.value, delu.value, nu.value
                    
@@ -159,21 +164,21 @@ class Scvx:
         diverge = False
         stop = False
 
-        self.x[0,:] = self.x0
-        for j in range(np.size(self.Alpha,axis=0)):   
-            for i in range(self.N):
-                self.x[i+1,:] = self.model.forward(self.x[i,:],self.Alpha[j]*self.u[i,:],i)       
-                self.c[i] = self.cost.estimate_cost(self.x[i,:],self.Alpha[j]*self.u[i,:])
-                self.cnu[i] = self.lambda_nu*np.linalg.norm(self.nu[i,:],1)
-                if  np.max( self.x[i+1,:] ) > 1e8 :                
-                    diverge = True
-                    print("initial trajectory is already diverge")
-                    pass
-            self.c[self.N] = self.cost.estimate_cost(self.x[self.N,:],np.zeros(self.model.iu))
-            if diverge == False:
-                break
-                pass
-            passs
+        self.x = self.x0
+        self.c[:N] = self.cost.estimate_cost(self.x[:N,:],self.u)
+        self.c[N] = self.cost.estimate_cost(self.x[N,:],np.zeros(iu))
+        # for j in range(np.size(self.Alpha,axis=0)):   
+        #     for i in range(self.N):
+        #         self.x[i+1,:] = self.model.forward(self.x[i,:],self.Alpha[j]*self.u[i,:],i)       
+        #         self.c[i] = self.cost.estimate_cost(self.x[i,:],self.Alpha[j]*self.u[i,:])
+        #         self.cnu[i] = self.lambda_nu*np.linalg.norm(self.nu[i,:],1)
+        #         if  np.max( self.x[i+1,:] ) > 1e8 :                
+        #             diverge = True
+        #             print("initial trajectory is already diverge")
+
+        #     self.c[self.N] = self.cost.estimate_cost(self.x[self.N,:],np.zeros(self.model.iu))
+        #     if diverge == False:
+        #         break
         # iterations starts!!
         flgChange = True
         for iteration in range(self.maxIter) :
@@ -181,6 +186,8 @@ class Scvx:
             if flgChange == True:
                 start = time.time()
                 self.fx, self.fu = self.model.diff(self.x[0:N,:],self.u)
+                self.hx[0:N], self.hu = self.const.diff_numeric(self.x[0:N,:],self.u)
+                self.hx[N],_ = self.const.diff_numeric(self.x[N:,:],np.zeros((1,iu)))
                 # c_x_u = self.cost.diff_cost(self.x[0:N,:],self.u)
                 # c_xx_uu = self.cost.hess_cost(self.x[0:N,:],self.u)
                 # c_xx_uu = 0.5 * ( np.transpose(c_xx_uu,(0,2,1)) + c_xx_uu )
@@ -206,11 +213,11 @@ class Scvx:
             fwdPassDone = False
             if prob_status == 'optimal' :
                 start = time.time()
-                # for i in self.Alpha :
-                self.xnew,self.unew,self.cnew = self.forward(self.x0,self.u,delu,1)
+                # non-linear forward
+                self.xnew,self.unew,self.cnew = self.forward(self.x0[0,:],self.u,delu,1)
                 self.cnunew = self.lambda_nu*np.linalg.norm(self.nunew,1,1)
-                dcost = np.sum(self.c) + 0*np.sum(self.cnu) - np.sum( self.cnew ) - 0*np.sum(self.cnunew)
-                expected = np.sum(self.c) + 0*np.sum(self.cnu) - l - 0*l_vc
+                dcost = np.sum(self.c) + np.sum(self.cnu) - np.sum( self.cnew ) - np.sum(self.cnunew)
+                expected = np.sum(self.c) + np.sum(self.cnu) - l - l_vc
                 rho = dcost / expected
                 if expected < 0 :
                     print("non-positive expected reduction: should not occur")
@@ -263,7 +270,7 @@ class Scvx:
                 self.tr_radius = self.tr_radius / self.tr_alpha
                 # print status
                 if self.verbosity == True :
-                    print("%-12d%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NO STEP','NO STEP',dcost,expected,0.0))
+                    print("%-12d%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NO STEP','NO STEP',dcost,expected,self.tr_radius))
                     # print("%-12d%-12s%-12.3g" %
                         # ( iteration,'NO STEP', dcost))
 
