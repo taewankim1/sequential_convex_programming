@@ -118,11 +118,11 @@ class unicycle(OptimalcontrolCost):
     def __init__(self,name,x_t,N):
         super().__init__(name)
        
-        self.Q = 1e-1*np.identity(3)
+        self.Q = 0*np.identity(3)
         # self.Q = 1e-1 * self.Q
-        self.Q[2,2] = 1e-2 * self.Q[2,2]
+        # self.Q[2,2] = 1e-2 * self.Q[2,2]
 
-        self.R = 1 * np.identity(2)
+        self.R = 10 * np.identity(2)
         
         self.ix = 3
         self.iu = 2

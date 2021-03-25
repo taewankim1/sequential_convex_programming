@@ -108,8 +108,8 @@ class UnicycleConstraints(OptimalcontrolConstraints):
         
         # output
         f = np.zeros((N,self.ih))
-        f[:,0] = v - 0.4
-        f[:,1] = -w - 0.2
+        f[:,0] = v - 10
+        f[:,1] = -w - 10 
 
         return f
     
