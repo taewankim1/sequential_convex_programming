@@ -45,10 +45,10 @@ class Landing2D(OptimalcontrolConstraints):
         f[:,1] = -t-np.deg2rad(60)
         f[:,2] = w-np.deg2rad(60)
         f[:,3] = -w-np.deg2rad(60)
-        f[:,4] = thrust-5
-        f[:,5] = -thrust + 0.3
-        f[:,6] = gimbal-np.deg2rad(30)
-        f[:,7] = -gimbal-np.deg2rad(30)
+        f[:,4] = thrust-3
+        f[:,5] = -thrust + 0.0 # doesn't work for the value > 0, why?
+        f[:,6] = gimbal-np.deg2rad(90)
+        f[:,7] = -gimbal-np.deg2rad(90)
         f[:,8] = -ry  
 
         return f
