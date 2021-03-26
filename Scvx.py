@@ -32,13 +32,14 @@ class Scvx:
         
         # cost optimization
         self.verbosity = True
-        self.lambda_nu = 1e4
-        self.tr_radius = 3
+        self.w_nu = 1e4
+        self.w_tr = 1e-3
+        self.tr_radius = 1
         self.rho0 = 0
         self.rho1 = 0.25
         self.rho2 = 0.9
         self.tr_alpha = 2
-        self.tolFun = 1e-5
+        self.tolFun = 1e-3
         self.tolTr = 1e-3
         self.tolBc = 1e-3
         # self.tolGrad = 1e-4
@@ -120,11 +121,12 @@ class Scvx:
         # constraints.append(cvx.norm(delu,"inf") <= self.tr_radius)
 
         # inequality contraints
-        # h = self.const.forward(self.x,np.vstack((self.u,np.zeros(2))))
-        # # IPython.embed()
-        # for i in range(0,N) :
-        #     constraints.append(h[i] + self.hx[i]@delx[i] + self.hu[i]@delu[i] <= 0)
-        # constraints.append(h[N] + self.hx[N]@delx[N] <= 0)
+        h = self.const.forward(self.x,np.vstack((self.u,np.zeros(2))))
+        # IPython.embed()
+        for i in range(0,N) :
+            constraints.append(h[i] + self.hx[i]@delx[i] + self.hu[i]@delu[i] <= 0)
+        constraints.append(h[N] + self.hx[N]@delx[N] <= 0)
+        # IPython.embed()
 
 
         objective = []
@@ -133,7 +135,8 @@ class Scvx:
         objective_test = []
 
         for i in range(0,N) :
-            constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] + nu[i,:] )
+            constraints.append(x_new[i+1,:] == self.model.forward(self.x[i],self.u[i]) +  self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] + nu[i,:] )
+            # constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:] + nu[i,:] )
             # constraints.append(delx[i+1,:] == self.fx[i,:,:]@delx[i,:] + self.fu[i,:,:]@delu[i,:])
             objective.append(self.cost.estimate_cost_cvx(x_new[i],u_new[i]))
             objective_test.append(self.cost.estimate_cost_cvx(self.x[i],self.u[i]))
@@ -152,14 +155,14 @@ class Scvx:
 
         l_all = l + l_vc + l_tr
         prob = cvx.Problem(cvx.Minimize(l_all), constraints)
-        prob.solve(verbose=False,solver=cvx.MOSEK,warm_start=True)
-        # IPython.embed()
+        prob.solve(verbose=False,solver=cvx.ECOS,warm_start=True)
+        IPython.embed()
         # if l_all.value > l_test.value :
             # print(prob.status) 
             # print('result {:12.7f} nothing {:12.7f}'.format(l_all.value,l_test.value))
             # IPython.embed()
 
-        return prob.status,l.value,l_vc.value,l_tr.value,delu.value, nu.value
+        return prob.status,l.value,l_vc.value,l_tr.value,x_new.value,u_new.value,delu.value, nu.value
                    
         
     def update(self,x0,u0):
@@ -207,7 +210,7 @@ class Scvx:
             # differentiate dynamics and cost
             if flgChange == True:
                 start = time.time()
-                self.fx, self.fu = self.model.diff(self.x[0:N,:],self.u)
+                self.fx, self.fu = self.model.diff_numeric(self.x[0:N,:],self.u)
                 self.hx[0:N], self.hu = self.const.diff_numeric(self.x[0:N,:],self.u)
                 self.hx[N],_ = self.const.diff_numeric(self.x[N:,:],np.zeros((1,iu)))
                 # c_x_u = self.cost.diff_cost(self.x[0:N,:],self.u)
@@ -228,6 +231,8 @@ class Scvx:
                 eps_machine = np.finfo(float).eps
                 self.fx[np.abs(self.fx) < eps_machine] = 0
                 self.fu[np.abs(self.fu) < eps_machine] = 0
+                self.hx[np.abs(self.hx) < eps_machine] = 0
+                self.hu[np.abs(self.hu) < eps_machine] = 0
 
                 flgChange = False
                 pass
@@ -235,11 +240,13 @@ class Scvx:
             time_derivs = (time.time() - start)
 
             # step2. cvxopt
-            prob_status,l,l_vc,l_tr,delu,self.nunew = self.cvxopt()
+            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,delu,self.nunew = self.cvxopt()
 
             # step3. line-search to find new control sequence, trajectory, cost
-            fwdPassDone = False
+            flag_cvx = False
+            flag_boundary = False
             if prob_status == 'optimal' :
+                flag_cvx = True
                 start = time.time()
                 # for alp in self.Alpha :
                 self.xnew,self.unew,self.cnew = self.forward(self.x0[0,:],self.u,delu,self.Alpha[0])
@@ -252,37 +259,29 @@ class Scvx:
                 # check the boundary condtion
                 if np.linalg.norm(self.xnew[-1]-self.x0[-1],2) >= self.tolBc :
                     print("Boundary conditions are not satisified: just accept this step")
-                    fwdPassDone = True
+                    flag_boundary = False
+                else :
+                    flag_boundary = True
                 if expected < 0 :
                     print("non-positive expected reduction: should not occur")
-                    # if dcost > 0 :
-                        # print("positive reduction: accept this")
-                        # fwdPassDone = True
-                    fwdPassDone = True
                     rho = np.sign(dcost)
-                if rho > 0 :
-                    fwdPassDone = True
-                    # break          
-                if fwdPassDone == False :
-                    alpha_temp = 1e8 # % signals failure of forward pass
-                    pass
                 time_forward = time.time() - start
             else :
                 print("CVXOPT Failed: should not occur")
                 dcost = 0
                 expected = 0
-                break
+
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
                 print("iteration   cost        cost_vc   cost_tr   reduction    expected    radius_tr")
-            if fwdPassDone == True:
+            if flag_cvx == True:
                 if self.verbosity == True:
                     print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f" % ( iteration,np.sum(self.c),np.sum(self.cnu),np.sum(self.ctr),dcost,expected,self.tr_radius))
 
                 # accept changes
-                self.x = self.xnew
-                self.u = self.unew
+                self.x = self.xbar
+                self.u = self.ubar
                 self.nu = self.nunew
                 self.c = self.cnew
                 self.cnu = self.cnunew
@@ -300,7 +299,7 @@ class Scvx:
 
                 # terminate?
                 # if expected < self.tolFun and expected >= 0:
-                if dcost < self.tolFun and dcost >= 0 :
+                if iteration > 1 and flag_boundary == True and dcost < self.tolFun and dcost >= 0 :
                     if self.verbosity == True:
                         print("SUCCEESS: cost change < tolFun",dcost)
                     break
@@ -310,18 +309,13 @@ class Scvx:
                 if self.tr_radius < self.tolTr :
                     print("TERMINATED: trust region < tolTr",self.tr_radius)
                     break
+                print("reduce the trust region")
                 self.tr_radius = self.tr_radius / 10
                 # print status
                 if self.verbosity == True :
                     print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.tr_radius))
-                    # print("%-12d%-12s%-12.3g" %
-                        # ( iteration,'NO STEP', dcost))
 
-                # if self.verbosity == True:
-                #     print("Failed: cvxopt failed",dcost)
-
-
-        return self.x, self.u
+        return self.xnew, self.unew
         
 
 
