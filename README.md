@@ -13,8 +13,8 @@ Rocket Powered Landing with Free-Final-Time (https://arxiv.org/pdf/1802.03827.pd
 * Integration with odeFun
 
 
-## 2D Landing
-<img src="images/mygif.gif">
+## 3D Landing
+<img src="images/Landing3D.gif">
 
 ## Unicycle Driving
 <img src="images/unicycle.gif">
