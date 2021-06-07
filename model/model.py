@@ -5,13 +5,16 @@
 
 from __future__ import division
 import matplotlib.pyplot as plt
+from scipy.integrate import odeint
+from scipy.integrate import solve_ivp
 import numpy as np
 import time
 import random
+import IPython
 def print_np(x):
     print ("Type is %s" % (type(x)))
     print ("Shape is %s" % (x.shape,))
-    print ("Values are: \n%s" % (x))
+    # print ("Values are: \n%s" % (x))
 
 
 class OptimalcontrolModel(object) :
@@ -21,7 +24,7 @@ class OptimalcontrolModel(object) :
         self.iu = iu
         self.delT = delT
 
-    def forward(self) :
+    def forward(self,x,u,idx=None,discrete=True):
         print("this is in parent class")
         pass
 
@@ -29,7 +32,7 @@ class OptimalcontrolModel(object) :
         print("this is in parent class")
         pass
 
-    def diff_numeric(self,x,u) :
+    def diff_numeric(self,x,u,discrete=True) :
         # state & input size
         ix = self.ix
         iu = self.iu
@@ -37,8 +40,8 @@ class OptimalcontrolModel(object) :
         ndim = np.ndim(x)
         if ndim == 1: # 1 step state & input
             N = 1
-            # x = np.expand_dims(x,axis=0)
-            # u = np.expand_dims(u,axis=0)
+            x = np.expand_dims(x,axis=0)
+            u = np.expand_dims(u,axis=0)
         else :
             N = np.size(x,axis = 0)
         
@@ -65,8 +68,8 @@ class OptimalcontrolModel(object) :
         u_aug = np.reshape( np.transpose(u_aug,(0,2,1)), (N*(iu+ix),iu))
 
         # numerical difference
-        f_nominal = self.forward(x,u,0) 
-        f_change = self.forward(x_aug,u_aug,0)
+        f_nominal = self.forward(x,u,0,discrete=discrete) 
+        f_change = self.forward(x_aug,u_aug,0,discrete=discrete)
         # print_np(f_change)
         f_change = np.reshape(f_change,(N,ix+iu,ix))
         # print_np(f_nominal)
@@ -79,3 +82,53 @@ class OptimalcontrolModel(object) :
         
         return np.squeeze(fx), np.squeeze(fu)
 
+    def diff_discrete_zoh(self,x,u) :
+        delT = self.delT
+        ix = self.ix
+        iu = self.iu
+
+        ndim = np.ndim(x)
+        if ndim == 1: # 1 step state & input
+            N = 1
+            x = np.expand_dims(x,axis=0)
+            u = np.expand_dims(u,axis=0)
+        else :
+            N = np.size(x,axis = 0)
+
+        def dvdt(t,V,u,length) :
+            assert len(u) == length
+            V = V.reshape((length,ix + ix*ix + ix*iu + ix + ix)).transpose()
+            x = V[:ix].transpose()
+            Phi = V[ix:ix*ix + ix]
+            Phi = Phi.transpose().reshape((length,ix,ix))
+            Phi_inv = np.linalg.inv(Phi)
+            f = self.forward(x,u,discrete=False)
+            A,B = self.diff_numeric(x,u,discrete=False)
+            # IPython.embed()
+            dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
+            dbdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose()
+            dsdt = np.squeeze(np.matmul(Phi_inv,np.expand_dims(f,2))).transpose()
+            dzdt = np.squeeze(np.matmul(Phi_inv,-np.matmul(A,np.expand_dims(x,2)) - np.matmul(B,np.expand_dims(u,2)))).transpose()
+            dv = np.vstack((f.transpose(),dpdt,dbdt,dsdt,dzdt))
+            # IPython.embed()
+            return dv.flatten(order='F')
+        
+        A0 = np.eye(ix).flatten()
+        B0 = np.zeros((ix*iu))
+        s0 = np.zeros(ix)
+        z0 = np.zeros(ix)
+        V0 = np.array([np.hstack((x[i],A0,B0,s0,z0)) for i in range(N)]).transpose()
+        V0_repeat = V0.flatten(order='F')
+
+        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u,N),method='RK45')
+        # IPython.embed()
+        sol = sol.y[:,-1].reshape((N,-1))
+        xnew = np.zeros((N+1,ix))
+        xnew[0] = x[0]
+        xnew[1:] = sol[:,:ix]
+        A = sol[:,ix:ix+ix*ix].reshape((-1,ix,ix))
+        B = np.matmul(A,sol[:,ix+ix*ix:ix+ix*ix+ix*iu].reshape((-1,ix,iu)))
+        s = np.matmul(A,sol[:,ix+ix*ix+ix*iu:ix+ix*ix+ix*iu+ix].reshape((-1,ix,1))).squeeze()
+        z = np.matmul(A,sol[:,ix+ix*ix+ix*iu+ix:].reshape((-1,ix,1))).squeeze()
+
+        return A,B,s,z
