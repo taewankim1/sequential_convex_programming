@@ -15,7 +15,7 @@ def print_np(x):
 thrust_scale = 0.1
 attitude_scale = 0.3
 
-def make_trajectory_fig(x,u) :
+def make_rocket3d_trajectory_fig(x,u,img_name='untitled') :
     filenames = []
     N = np.shape(x)[0]
     for k in range(N):
@@ -58,7 +58,7 @@ def make_trajectory_fig(x,u) :
         filenames.append(filename)
         plt.close()
 
-    with imageio.get_writer('../images/Landing3D.gif', mode='I') as writer:
+    with imageio.get_writer('../images/'+img_name+'.gif', mode='I') as writer:
         for filename in filenames:
             image = imageio.imread(filename)
             writer.append_data(image)
