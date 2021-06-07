@@ -122,16 +122,22 @@ class OptimalcontrolModel(object) :
 
         sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u,N),method='RK45')
         # IPython.embed()
+        idx_state = slice(0,ix)
+        idx_A = slice(ix,ix+ix*ix)
+        idx_B = slice(ix+ix*ix,ix+ix*ix+ix*iu)
+        idx_s = slice(ix+ix*ix+ix*iu,ix+ix*ix+ix*iu+ix)
+        idx_z = slice(ix+ix*ix+ix*iu+ix,ix+ix*ix+ix*iu+ix+ix)
         sol = sol.y[:,-1].reshape((N,-1))
         xnew = np.zeros((N+1,ix))
         xnew[0] = x[0]
         xnew[1:] = sol[:,:ix]
-        A = sol[:,ix:ix+ix*ix].reshape((-1,ix,ix))
-        B = np.matmul(A,sol[:,ix+ix*ix:ix+ix*ix+ix*iu].reshape((-1,ix,iu)))
-        s = np.matmul(A,sol[:,ix+ix*ix+ix*iu:ix+ix*ix+ix*iu+ix].reshape((-1,ix,1))).squeeze()
-        z = np.matmul(A,sol[:,ix+ix*ix+ix*iu+ix:].reshape((-1,ix,1))).squeeze()
+        A = sol[:,idx_A].reshape((-1,ix,ix))
+        B = np.matmul(A,sol[:,idx_B].reshape((-1,ix,iu)))
+        s = np.matmul(A,sol[:,idx_s].reshape((-1,ix,1))).squeeze()
+        z = np.matmul(A,sol[:,idx_z].reshape((-1,ix,1))).squeeze()
 
         return A,B,s,z
+
 
     def diff_discrete_foh(self,x,u) :
         delT = self.delT
@@ -146,10 +152,12 @@ class OptimalcontrolModel(object) :
         else :
             N = np.size(x,axis = 0)
 
-        def dvdt(t,V,u,length) :
-            assert len(u) == length
-            alpha = (delT-t)/delT
+        def dvdt(t,V,um,up,length) :
+            assert len(um) == len(up)
+            assert len(um) == length
+            alpha = (delT - t) / delT
             beta = t / delT
+            u = alpha * um + beta * up
             V = V.reshape((length,ix + ix*ix + ix*iu + ix + ix)).transpose()
             x = V[:ix].transpose()
             Phi = V[ix:ix*ix + ix]
@@ -159,29 +167,38 @@ class OptimalcontrolModel(object) :
             A,B = self.diff_numeric(x,u,discrete=False)
             # IPython.embed()
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
-            dbdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose()
+            dbmdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * alpha
+            dbpdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * beta
             dsdt = np.squeeze(np.matmul(Phi_inv,np.expand_dims(f,2))).transpose()
             dzdt = np.squeeze(np.matmul(Phi_inv,-np.matmul(A,np.expand_dims(x,2)) - np.matmul(B,np.expand_dims(u,2)))).transpose()
-            dv = np.vstack((f.transpose(),dpdt,dbdt,dsdt,dzdt))
+            dv = np.vstack((f.transpose(),dpdt,dbmdt,dbpdt,dsdt,dzdt))
             # IPython.embed()
             return dv.flatten(order='F')
         
         A0 = np.eye(ix).flatten()
-        B0 = np.zeros((ix*iu))
+        Bm0 = np.zeros((ix*iu))
+        Bp0 = np.zeros((ix*iu))
         s0 = np.zeros(ix)
         z0 = np.zeros(ix)
-        V0 = np.array([np.hstack((x[i],A0,B0,s0,z0)) for i in range(N)]).transpose()
+        V0 = np.array([np.hstack((x[i],A0,Bm0,Bp0,s0,z0)) for i in range(N)]).transpose()
         V0_repeat = V0.flatten(order='F')
 
-        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u,N),method='RK45')
+        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u[0:N],u[1:],N),method='RK45')
         # IPython.embed()
+        idx_state = slice(0,ix)
+        idx_A = slice(ix,ix+ix*ix)
+        idx_Bm = slice(ix+ix*ix,ix+ix*ix+ix*iu)
+        idx_Bp = slice(ix+ix*ix+ix*iu,ix+ix*ix+2*ix*iu)
+        idx_s = slice(ix+ix*ix+2*ix*iu,ix+ix*ix+2*ix*iu+ix)
+        idx_z = slice(ix+ix*ix+2*ix*iu+ix,ix+ix*ix+2*ix*iu+ix+ix)
         sol = sol.y[:,-1].reshape((N,-1))
         xnew = np.zeros((N+1,ix))
         xnew[0] = x[0]
         xnew[1:] = sol[:,:ix]
-        A = sol[:,ix:ix+ix*ix].reshape((-1,ix,ix))
-        B = np.matmul(A,sol[:,ix+ix*ix:ix+ix*ix+ix*iu].reshape((-1,ix,iu)))
-        s = np.matmul(A,sol[:,ix+ix*ix+ix*iu:ix+ix*ix+ix*iu+ix].reshape((-1,ix,1))).squeeze()
-        z = np.matmul(A,sol[:,ix+ix*ix+ix*iu+ix:].reshape((-1,ix,1))).squeeze()
+        A = sol[:,idx_A].reshape((-1,ix,ix))
+        Bm = np.matmul(A,sol[:,idx_Bm].reshape((-1,ix,iu)))
+        Bp = np.matmul(A,sol[:,idx_Bp].reshape((-1,ix,iu)))
+        s = np.matmul(A,sol[:,idx_s].reshape((-1,ix,1))).squeeze()
+        z = np.matmul(A,sol[:,idx_z].reshape((-1,ix,1))).squeeze()
 
-        return A,B,s,z
+        return A,Bm,Bp,s,z

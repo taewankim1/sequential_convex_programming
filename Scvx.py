@@ -42,7 +42,7 @@ class Scvx:
         self.tol_bc = tol_bc
         self.maxIter = maxIter
         self.last_head = True
-        
+        self.type_discretization = 'zoh'   
         self.initialize()
         
     def initialize(self) :
@@ -50,7 +50,7 @@ class Scvx:
         self.dV = np.zeros((1,2))
         self.x0 = np.zeros(self.model.ix)
         self.x = np.zeros((self.N+1,self.model.ix))
-        self.u = np.ones((self.N,self.model.iu))
+        self.u = np.ones((self.N+1,self.model.iu))
         self.vc = np.ones((self.N,self.model.ix)) * 1e-1
         self.tr = np.ones((self.N+1))
 
@@ -61,6 +61,8 @@ class Scvx:
 
         self.A = np.zeros((self.N,self.model.ix,self.model.ix))
         self.B = np.zeros((self.N,self.model.ix,self.model.iu))  
+        self.Bm = np.zeros((self.N,self.model.ix,self.model.iu))  
+        self.Bp = np.zeros((self.N,self.model.ix,self.model.iu))  
         self.s = np.zeros((self.N,self.model.ix))
         self.z = np.zeros((self.N,self.model.ix))
 
@@ -149,7 +151,7 @@ class Scvx:
         N = self.N
 
         x_cvx = cvx.Variable((N+1,ix))
-        u_cvx = cvx.Variable((N,iu))
+        u_cvx = cvx.Variable((N+1,iu))
 
         vc = cvx.Variable((N,ix))
         vc.value = np.zeros((N,ix))
@@ -161,18 +163,17 @@ class Scvx:
 
         constraints = []
         # initial boundary condition
-        constraints.append(x_cvx[0,:] == self.x0[0])
+        constraints.append(x_cvx[0] == self.x0[0])
         # final 
-        # constraints.append(x_cvx[-1,:] == self.x0[-1])
         constraints += self.const.bc_final(x_cvx[-1,:],self.x0[-1])
 
         # trust region
         for i in range(N) :
             constraints.append(cvx.quad_form(delx[i],np.eye(ix)) + cvx.quad_form(delu[i],np.eye(iu)) <= tr[i] )
-        # constraints.append(cvx.quad_form(delx[N],np.eye(ix)) <= tr[N] )
+        constraints.append(cvx.quad_form(delx[N],np.eye(ix)) <= tr[N] )
 
         # inequality contraints
-        for i in range(0,N) :
+        for i in range(0,N+1) :
             h = self.const.forward(x_cvx[i],u_cvx[i],self.x[i],self.u[i])
             constraints += h
             # constraints.append(h[i] + self.hx[i]@delx[i] + self.hu[i]@delu[i] <= 0)
@@ -186,7 +187,6 @@ class Scvx:
 
         # TODO - we can get rid of this for loop
         for i in range(0,N) :
-            # constraints.append(x_new[i+1,:] == self.model.forward(self.x[i],self.u[i]) +  self.A[i,:,:]@delx[i,:] + self.B[i,:,:]@delu[i,:] + vc[i,:] )
             constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i] + vc[i,:] )
             objective.append(self.cost.estimate_cost_cvx(x_cvx[i],u_cvx[i]))
             objective_vc.append(self.w_vc * cvx.norm(vc[i,:],1))
@@ -228,7 +228,7 @@ class Scvx:
         stop = False
 
         self.x = self.x0
-        self.c = np.sum(self.cost.estimate_cost(self.x[:N,:],self.u))
+        self.c = np.sum(self.cost.estimate_cost(self.x[:N,:],self.u[:N]))
         self.c += self.cost.estimate_cost(self.x[N,:],np.zeros(iu))
         self.cvc = 0
         self.ctr = 0
@@ -240,8 +240,10 @@ class Scvx:
             # differentiate dynamics and cost
             if flgChange == True:
                 start = time.time()
-                self.A,self.B,self.s,self.z = self.model.diff_discrete_zoh(self.x[0:N,:],self.u)
-                # self.A,self.B,self.s,self.z = self.model.diff_discrete_zoh(self.x[0:N,:],self.u)
+                if self.type_discretization == 'zoh' :
+                    self.A,self.B,self.s,self.z = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:])
+                elif self.type_discretization == 'foh' :
+                    self.A,self.Bm,self.Bp,self.s,self.z = self.model.diff_discrete_foh(self.x[0:N,:],self.u)
 
                 # IPython.embed()
                 # remove small element
@@ -256,6 +258,7 @@ class Scvx:
 
             # step2. cvxopt
             prob_status,l,l_vc,l_tr,self.xbar,self.ubar,delu,self.vcnew, self.trnew = self.cvxopt()
+            # IPython.embed()
 
             # step3. line-search to find new control sequence, trajectory, cost
             flag_cvx = False
