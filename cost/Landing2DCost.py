@@ -16,10 +16,10 @@ class Landing2D(OptimalcontrolCost):
     def __init__(self,name,ix,iu,N):
         super().__init__(name,ix,iu,N)
        
-        self.Q = 0*np.identity(self.ix)
+        self.Q = 0.0*np.identity(self.ix)
 
         self.R = 0 * np.identity(self.iu)
-        self.R[0,0] = 0
+        self.R[0,0] = 0.01 * self.R[0,0] 
         
 
     def estimate_cost(self,x,u):

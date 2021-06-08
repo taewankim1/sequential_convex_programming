@@ -14,7 +14,7 @@ from constraints import OptimalcontrolConstraints
 import IPython
 
 class Landing3D(OptimalcontrolConstraints):
-    def __init__(self,name,ix,iu,ih,idx_bc_f=None):
+    def __init__(self,name,ix,iu,ih):
         super().__init__(name,ix,iu,ih)
         self.m_dry = 1
         self.T_min = 0.0
@@ -23,10 +23,7 @@ class Landing3D(OptimalcontrolConstraints):
         self.theta_max = np.deg2rad(90)
         self.gamma_gs = np.deg2rad(20)
         self.w_max = np.deg2rad(60)
-        if idx_bc_f is None :
-            self.idx_bc_f = slice(0, ix)
-        else :
-            self.idx_bc_f = slice(1, 14)
+        self.idx_bc_f = slice(1, 14)
         
     def forward(self,x,u,xbar,ubar):
         # state & input

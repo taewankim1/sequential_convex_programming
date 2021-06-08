@@ -15,10 +15,9 @@ from constraints import OptimalcontrolConstraints
 class Landing2D(OptimalcontrolConstraints):
     def __init__(self,name,ix,iu,ih):
         super().__init__(name,ix,iu,ih)
+        self.idx_bc_f = slice(0, ix)
         
     def forward(self,x,u,xbar=None,ubar=None):
-
-
         # state & input
         rx = x[0]
         ry = x[1]
@@ -42,40 +41,11 @@ class Landing2D(OptimalcontrolConstraints):
         h.append(-ry <= 0)
         return h
 
-        # xdim = np.ndim(x)
-        # if xdim == 1: # 1 step state & input
-        #     N = 1
-        #     x = np.expand_dims(x,axis=0)
-        # else :
-        #     N = np.size(x,axis = 0)
-        # udim = np.ndim(u)
-        # if udim == 1 :
-        #     u = np.expand_dims(u,axis=0)
-     
-        # # state & input
-        # rx = x[:,0]
-        # ry = x[:,1]
-        # vx = x[:,2]
-        # vy = x[:,3]
-        # t = x[:,4]
-        # w = x[:,5]
-        
-        # gimbal = u[:,0]
-        # thrust = u[:,1]
-        
-        # # output
-        # f = np.zeros((N,self.ih))
-        # f[:,0] = t-np.deg2rad(60)
-        # f[:,1] = -t-np.deg2rad(60)
-        # f[:,2] = w-np.deg2rad(60)
-        # f[:,3] = -w-np.deg2rad(60)
-        # f[:,4] = thrust-3
-        # f[:,5] = -thrust + 0.0 # doesn't work for the value > 0, why?
-        # f[:,6] = gimbal-np.deg2rad(90)
-        # f[:,7] = -gimbal-np.deg2rad(90)
-        # f[:,8] = -ry  
+    def bc_final(self,x_cvx,xf):
+        h = []
+        h.append(x_cvx == xf)
 
-        # return f
+        return h
     
 
     

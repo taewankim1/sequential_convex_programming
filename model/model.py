@@ -157,15 +157,16 @@ class OptimalcontrolModel(object) :
             assert len(um) == length
             alpha = (delT - t) / delT
             beta = t / delT
+            # print(alpha,beta)
             u = alpha * um + beta * up
-            V = V.reshape((length,ix + ix*ix + ix*iu + ix + ix)).transpose()
+            # IPython.embed()
+            V = V.reshape((length,ix + ix*ix + 2*ix*iu + ix + ix)).transpose()
             x = V[:ix].transpose()
             Phi = V[ix:ix*ix + ix]
             Phi = Phi.transpose().reshape((length,ix,ix))
             Phi_inv = np.linalg.inv(Phi)
             f = self.forward(x,u,discrete=False)
             A,B = self.diff_numeric(x,u,discrete=False)
-            # IPython.embed()
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
             dbmdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * alpha
             dbpdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * beta
@@ -192,9 +193,9 @@ class OptimalcontrolModel(object) :
         idx_s = slice(ix+ix*ix+2*ix*iu,ix+ix*ix+2*ix*iu+ix)
         idx_z = slice(ix+ix*ix+2*ix*iu+ix,ix+ix*ix+2*ix*iu+ix+ix)
         sol = sol.y[:,-1].reshape((N,-1))
-        xnew = np.zeros((N+1,ix))
-        xnew[0] = x[0]
-        xnew[1:] = sol[:,:ix]
+        # xnew = np.zeros((N+1,ix))
+        # xnew[0] = x[0]
+        # xnew[1:] = sol[:,:ix]
         A = sol[:,idx_A].reshape((-1,ix,ix))
         Bm = np.matmul(A,sol[:,idx_Bm].reshape((-1,ix,iu)))
         Bp = np.matmul(A,sol[:,idx_Bp].reshape((-1,ix,iu)))

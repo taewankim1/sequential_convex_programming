@@ -104,3 +104,95 @@ def plot_rocket3d(fig, x, u, xppg):
     ax.plot(x[:, 1], x[:, 2], x[:, 3])
     ax.plot(xppg[:, 1], xppg[:, 2], xppg[:, 3],'--')
 #     ax.set_aspect('equal')
+
+def make_rocket2d_trajectory_fig(x,u,img_name) :
+    N = np.shape(x)[0]
+    Fx = +np.sin(x[:N,4] + u[:,0]) * u[:,1]
+    Fy = -np.cos(x[:N,4] + u[:,0]) * u[:,1]
+    filenames = []
+    for i in range(N+10) :
+        fS = 18
+        plt.figure(figsize=(10,10))
+        plt.gca().set_aspect('equal', adjustable='box')
+        if i <= N :
+            index = i
+        else :
+            index = N
+        plt.plot(x[:i+1,0], x[:i+1,1], linewidth=2.0) 
+        plt.plot(0, 0,'*', linewidth=2.0)
+        plt.quiver(x[index,0], x[index,1], -np.sin(x[index,4]), np.cos(x[index,4]), color='blue', width=0.003, scale=15, headwidth=1, headlength=0)
+        if i < N :
+            plt.quiver(x[index,0], x[index,1], Fx[index], Fy[index], color='red', width=0.003, scale=100, headwidth=1, headlength=0)
+        plt.axis([-2, 5, -1, 5])
+        plt.xlabel('X ()', fontsize = fS)
+        plt.ylabel('Y ()', fontsize = fS)
+        filename = '../images/{:d}.png'.format(i)
+        plt.savefig(filename)
+        filenames.append(filename)
+        plt.close()
+
+    with imageio.get_writer('../images/'+img_name+'.gif', mode='I') as writer:
+        for filename in filenames:
+            image = imageio.imread(filename)
+            writer.append_data(image)
+    for filename in set(filenames):
+        os.remove(filename)
+
+def plot_Landing2D_trajectory (x,u,xppg,delT) :
+    N = np.shape(x)[0]-1
+    fS = 18
+    Fx = +np.sin(x[:,4] + u[:,0]) * u[:,1]
+    Fy = -np.cos(x[:,4] + u[:,0]) * u[:,1]
+    plt.figure(1,figsize=(10,10))
+    plt.plot(x[:,0], x[:,1], linewidth=2.0)
+    plt.plot(xppg[:,0], xppg[:,1], '--',linewidth=2.0)
+    plt.plot(0,0,'o')
+    plt.gca().set_aspect('equal', adjustable='box')
+    index = np.linspace(0,N-1,30)
+    index = [int(i) for i in index]
+    plt.quiver(x[index,0], x[index,1], -np.sin(x[index,4]), np.cos(x[index,4]), color='blue', width=0.003, scale=15, headwidth=1, headlength=0)
+    plt.quiver(x[index,0], x[index,1], Fx[index], Fy[index], color='red', width=0.003, scale=100, headwidth=1, headlength=0)
+    plt.quiver(x[N,0], x[N,1], -np.sin(x[N,4]), np.cos(x[N,4]), color='blue', width=0.003, scale=15, headwidth=1, headlength=0)
+    plt.axis([-2, 5, -1, 5])
+    plt.xlabel('X ()', fontsize = fS)
+    plt.ylabel('Y ()', fontsize = fS)
+
+    plt.figure(2,figsize=(10,15))
+    plt.subplot(321)
+    plt.plot(np.array(range(N+1))*delT, x[:,0], linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('rx ()', fontsize = fS)
+    plt.subplot(322)
+    plt.plot(np.array(range(N+1))*delT, x[:,1], linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('ry ()', fontsize = fS)
+    plt.subplot(323)
+    plt.plot(np.array(range(N+1))*delT, x[:,2], linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('vx ()', fontsize = fS)
+    plt.subplot(324)
+    plt.plot(np.array(range(N+1))*delT, x[:,3], linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('vy ()', fontsize = fS)
+    plt.legend(fontsize=fS)
+    plt.subplot(325)
+    plt.plot(np.array(range(N+1))*delT, x[:,4]*180/np.pi, linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('theta (degree)', fontsize = fS)
+    plt.subplot(326)
+    plt.plot(np.array(range(N+1))*delT, x[:,5]*180/np.pi, linewidth=2.0,label='naive')
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('theta dot (rad/s)', fontsize = fS)
+    plt.legend(fontsize=fS)
+    plt.show()
+    
+    plt.figure(3)
+    plt.subplot(121)
+    plt.plot(np.array(range(N))*delT, u[:N,0]*180/np.pi, linewidth=2.0)
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('gimbal (degree)', fontsize = fS)
+    plt.subplot(122)
+    plt.plot(np.array(range(N))*delT, u[:N,1], linewidth=2.0)
+    plt.xlabel('time (s)', fontsize = fS)
+    plt.ylabel('thrust ()', fontsize = fS)
+    plt.show()

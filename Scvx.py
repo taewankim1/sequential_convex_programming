@@ -25,7 +25,7 @@ import IPython
 # In[7]:
 
 class Scvx:
-    def __init__(self,name,horizon,maxIter,Model,Cost,Const,w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3):
+    def __init__(self,name,horizon,maxIter,Model,Cost,Const,type_discretization='zoh',w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3):
         self.name = name
         self.model = Model
         self.const = Const
@@ -42,7 +42,7 @@ class Scvx:
         self.tol_bc = tol_bc
         self.maxIter = maxIter
         self.last_head = True
-        self.type_discretization = 'zoh'   
+        self.type_discretization = type_discretization   
         self.initialize()
         
     def initialize(self) :
@@ -55,7 +55,7 @@ class Scvx:
         self.tr = np.ones((self.N+1))
 
         self.xnew = np.zeros((self.N+1,self.model.ix))
-        self.unew = np.zeros((self.N,self.model.iu))
+        self.unew = np.zeros((self.N+1,self.model.iu))
         self.vcnew = np.zeros((self.N,self.model.ix))
         self.Alpha = np.power(10,np.linspace(0,-3,11))
 
@@ -79,57 +79,63 @@ class Scvx:
         self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
         self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
     
-    def forward(self,x0,u,delu,alpha):
-        # TODO - change integral method to odefun
-        # horizon
-        N = self.N
+    # def forward(self,x0,u,delu,alpha):
+    #     # TODO - change integral method to odefun
+    #     # horizon
+    #     N = self.N
         
-        # variable setting
-        xnew = np.zeros((N+1,self.model.ix))
-        unew = np.zeros((N,self.model.iu))
-        cnew = np.zeros(N+1)
+    #     # variable setting
+    #     xnew = np.zeros((N+1,self.model.ix))
+    #     unew = np.zeros((N,self.model.iu))
+    #     cnew = np.zeros(N+1)
         
-        # initial state
-        xnew[0,:] = x0
+    #     # initial state
+    #     xnew[0,:] = x0
         
-        # roll-out
-        for i in range(N):
-            unew[i,:] = u[i,:] + alpha * delu[i,:]
-            xnew[i+1,:] = self.model.forward(xnew[i,:],unew[i,:],i)
-            cnew[i] = self.cost.estimate_cost(xnew[i,:],unew[i,:])
+    #     # roll-out
+    #     for i in range(N):
+    #         unew[i,:] = u[i,:] + alpha * delu[i,:]
+    #         xnew[i+1,:] = self.model.forward(xnew[i,:],unew[i,:],i)
+    #         cnew[i] = self.cost.estimate_cost(xnew[i,:],unew[i,:])
             
-        cnew[N] = self.cost.estimate_cost(xnew[N,:],np.zeros(self.model.iu))
-        return xnew,unew,cnew
+    #     cnew[N] = self.cost.estimate_cost(xnew[N,:],np.zeros(self.model.iu))
+    #     return xnew,unew,cnew
 
-    def forward_piecewise(self,x,u) :
-        N = self.N
-        ix = self.model.ix
-        iu = self.model.iu
-        xnew = np.zeros_like(x)
+    # def forward_piecewise(self,x,u) :
+    #     N = self.N
+    #     ix = self.model.ix
+    #     iu = self.model.iu
+    #     xnew = np.zeros_like(x)
 
-        def dfdt(x,t,u) :
-            x = x.reshape((N,ix))
-            f = self.model.forward(x,u,discrete=False)
-            return f.flatten()
+    #     def dfdt(x,t,u) :
+    #         x = x.reshape((N,ix))
+    #         f = self.model.forward(x,u,discrete=False)
+    #         return f.flatten()
 
-        X0 = x[:N].flatten()
-        sol = odeint(dfdt,X0,(0,self.model.delT),args=(u,))[-1]
-        sol = sol.reshape((N,-1))
-        xnew[1:] = sol.reshape((-1,ix))
-        xnew[0] = x[0]
+    #     X0 = x[:N].flatten()
+    #     sol = odeint(dfdt,X0,(0,self.model.delT),args=(u,))[-1]
+    #     sol = sol.reshape((N,-1))
+    #     xnew[1:] = sol.reshape((-1,ix))
+    #     xnew[0] = x[0]
 
-        cnew = np.zeros(N+1)
-        cnew[:N] = self.cost.estimate_cost(xnew[:N],u)
-        cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
+    #     cnew = np.zeros(N+1)
+    #     cnew[:N] = self.cost.estimate_cost(xnew[:N],u)
+    #     cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
 
-        return xnew,u,cnew
+    #     return xnew,u,cnew
 
     def forward_full(self,x0,u) :
         N = self.N
         ix = self.model.ix
         iu = self.model.iu
 
-        def dfdt(t,x,u) :
+        def dfdt(t,x,um,up) :
+            if self.type_discretization == "zoh" :
+                u = um
+            elif self.type_discretization == "foh" :
+                alpha = (self.model.delT - t) / self.model.delT
+                beta = t / self.model.delT
+                u = alpha * um + beta * up
             return np.squeeze(self.model.forward(x,u,discrete=False))
 
         xnew = np.zeros((N+1,ix))
@@ -137,7 +143,7 @@ class Scvx:
         cnew = np.zeros(N+1)
 
         for i in range(N) :
-            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],),method='RK45',rtol=1e-6,atol=1e-10)
+            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
             cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
         cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
@@ -145,6 +151,8 @@ class Scvx:
         return xnew,u,cnew
         
     def cvxopt(self):
+        # TODO - we can get rid of most of loops here
+
         # state & input & horizon size
         ix = self.model.ix
         iu = self.model.iu
@@ -168,9 +176,9 @@ class Scvx:
         constraints += self.const.bc_final(x_cvx[-1,:],self.x0[-1])
 
         # trust region
-        for i in range(N) :
+        for i in range(N+1) :
             constraints.append(cvx.quad_form(delx[i],np.eye(ix)) + cvx.quad_form(delu[i],np.eye(iu)) <= tr[i] )
-        constraints.append(cvx.quad_form(delx[N],np.eye(ix)) <= tr[N] )
+        # constraints.append(cvx.quad_form(delx[N],np.eye(ix)) <= tr[N] )
 
         # inequality contraints
         for i in range(0,N+1) :
@@ -180,18 +188,25 @@ class Scvx:
         # constraints += self.const.forward(x_cvx[N],np.zeros(iu))
         # IPython.embed()
 
+        # model constraints
+        for i in range(0,N) :
+            if self.type_discretization == 'zoh' :
+                constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i] + vc[i,:] )
+                # constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i]  )
+            elif self.type_discretization == 'foh' :
+                constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.Bm[i,:,:]@u_cvx[i,:] + self.Bp[i,:,:]@u_cvx[i+1,:] + self.s[i] + self.z[i] + vc[i,:] )
+
+        # cost
         objective = []
         objective_vc = []
         objective_tr = []
         objective_test = []
-
-        # TODO - we can get rid of this for loop
         for i in range(0,N) :
-            constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i] + vc[i,:] )
             objective.append(self.cost.estimate_cost_cvx(x_cvx[i],u_cvx[i]))
             objective_vc.append(self.w_vc * cvx.norm(vc[i,:],1))
-        objective.append(self.cost.estimate_cost_cvx(x_cvx[N],np.zeros(iu)))
+        objective.append(self.cost.estimate_cost_cvx(x_cvx[N],u_cvx[N]))
         objective_tr.append(self.w_tr * cvx.norm(tr,2))
+        # objective_tr.append(0*self.w_tr * cvx.norm(tr,2))
 
         l = cvx.sum(objective)
         l_vc = cvx.sum(objective_vc)
@@ -250,6 +265,8 @@ class Scvx:
                 eps_machine = np.finfo(float).eps
                 self.A[np.abs(self.A) < eps_machine] = 0
                 self.B[np.abs(self.B) < eps_machine] = 0
+                self.Bm[np.abs(self.Bm) < eps_machine] = 0
+                self.Bp[np.abs(self.Bp) < eps_machine] = 0
 
                 flgChange = False
                 pass
@@ -275,8 +292,9 @@ class Scvx:
                 dcost = self.c + self.cvc + self.ctr - self.cnew - self.cvcnew - self.ctrnew
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
-                if np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.x0[-1,self.const.idx_bc_f],2) >= self.tol_bc :
-                    print("Boundary conditions are not satisified: just accept this step")
+                bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.x0[-1,self.const.idx_bc_f],2)
+                if  bc_error_norm >= self.tol_bc :
+                    print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
                     flag_boundary = False
                 else :
                     flag_boundary = True
