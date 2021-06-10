@@ -138,14 +138,15 @@ def make_rocket2d_trajectory_fig(x,u,img_name) :
     for filename in set(filenames):
         os.remove(filename)
 
-def plot_Landing2D_trajectory (x,u,xppg,delT) :
+def plot_Landing2D_trajectory (x,u,xppg=None,delT=0.1) :
     N = np.shape(x)[0]-1
     fS = 18
     Fx = +np.sin(x[:,4] + u[:,0]) * u[:,1]
     Fy = -np.cos(x[:,4] + u[:,0]) * u[:,1]
     plt.figure(1,figsize=(10,10))
     plt.plot(x[:,0], x[:,1], linewidth=2.0)
-    plt.plot(xppg[:,0], xppg[:,1], '--',linewidth=2.0)
+    if xppg is not None :
+        plt.plot(xppg[:,0], xppg[:,1], '--',linewidth=2.0)
     plt.plot(0,0,'o')
     plt.gca().set_aspect('equal', adjustable='box')
     index = np.linspace(0,N-1,30)
@@ -153,7 +154,7 @@ def plot_Landing2D_trajectory (x,u,xppg,delT) :
     plt.quiver(x[index,0], x[index,1], -np.sin(x[index,4]), np.cos(x[index,4]), color='blue', width=0.003, scale=15, headwidth=1, headlength=0)
     plt.quiver(x[index,0], x[index,1], Fx[index], Fy[index], color='red', width=0.003, scale=100, headwidth=1, headlength=0)
     plt.quiver(x[N,0], x[N,1], -np.sin(x[N,4]), np.cos(x[N,4]), color='blue', width=0.003, scale=15, headwidth=1, headlength=0)
-    plt.axis([-2, 5, -1, 5])
+    plt.axis([-5, 5, -1, 7])
     plt.xlabel('X ()', fontsize = fS)
     plt.ylabel('Y ()', fontsize = fS)
 

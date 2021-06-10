@@ -21,6 +21,8 @@ import cost
 import model
 import IPython
 
+from Scaling import compute_scaling
+
 
 # In[7]:
 
@@ -158,43 +160,46 @@ class Scvx:
         iu = self.model.iu
         N = self.N
 
+        Sx,iSx,sx,Su,iSu,su = compute_scaling(self.x,self.u)
+
+
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
 
+        # for i in range(N+1) :
+        #     x_cvx[i] = Sx@x_hat[i] + sx
+        #     u_cvx[i] = Su@u_hat[i] + su
+
         vc = cvx.Variable((N,ix))
-        vc.value = np.zeros((N,ix))
+        # vc.value = np.zeros((N,ix))
 
         tr = cvx.Variable((N+1),nonneg=True)
 
-        delx = x_cvx - self.x
-        delu = u_cvx - self.u
+        # delx = x_cvx - self.x
+        # delu = u_cvx - self.u
 
         constraints = []
-        # initial boundary condition
-        constraints.append(x_cvx[0] == self.x0[0])
-        # final 
-        constraints += self.const.bc_final(x_cvx[-1,:],self.x0[-1])
+        # initial & final boundary condition
+        constraints.append(Sx@x_cvx[0] + sx == self.x0[0])
+        constraints += self.const.bc_final(Sx@x_cvx[-1]+sx,self.x0[-1])
 
         # trust region
         for i in range(N+1) :
-            constraints.append(cvx.quad_form(delx[i],np.eye(ix)) + cvx.quad_form(delu[i],np.eye(iu)) <= tr[i] )
-        # constraints.append(cvx.quad_form(delx[N],np.eye(ix)) <= tr[N] )
+            constraints.append(cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) + \
+             cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu)) <= tr[i] )
 
         # inequality contraints
         for i in range(0,N+1) :
-            h = self.const.forward(x_cvx[i],u_cvx[i],self.x[i],self.u[i])
+            h = self.const.forward(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,self.x[i],self.u[i])
             constraints += h
-            # constraints.append(h[i] + self.hx[i]@delx[i] + self.hu[i]@delu[i] <= 0)
-        # constraints += self.const.forward(x_cvx[N],np.zeros(iu))
         # IPython.embed()
 
         # model constraints
         for i in range(0,N) :
             if self.type_discretization == 'zoh' :
-                constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i] + vc[i,:] )
-                # constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.B[i,:,:]@u_cvx[i,:] + self.s[i] + self.z[i]  )
+                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)+self.s[i]+self.z[i]+vc[i])
             elif self.type_discretization == 'foh' :
-                constraints.append(x_cvx[i+1,:] == self.A[i,:,:]@x_cvx[i,:] + self.Bm[i,:,:]@u_cvx[i,:] + self.Bp[i,:,:]@u_cvx[i+1,:] + self.s[i] + self.z[i] + vc[i,:] )
+                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx) + self.Bm[i]@(Su@u_cvx[i]+su)+self.Bp[i]@(Su@u_cvx[i+1]+su)+self.s[i]+self.z[i]+vc[i]) 
 
         # cost
         objective = []
@@ -202,9 +207,9 @@ class Scvx:
         objective_tr = []
         objective_test = []
         for i in range(0,N) :
-            objective.append(self.cost.estimate_cost_cvx(x_cvx[i],u_cvx[i]))
-            objective_vc.append(self.w_vc * cvx.norm(vc[i,:],1))
-        objective.append(self.cost.estimate_cost_cvx(x_cvx[N],u_cvx[N]))
+            objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su))
+            objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
+        objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su))
         objective_tr.append(self.w_tr * cvx.norm(tr,2))
         # objective_tr.append(0*self.w_tr * cvx.norm(tr,2))
 
@@ -218,7 +223,13 @@ class Scvx:
         if prob.status == cvx.OPTIMAL_INACCURATE :
             print("WARNING: inaccurate solution")
 
-        return prob.status,l.value,l_vc.value,l_tr.value,x_cvx.value,u_cvx.value,delu.value,vc.value,tr.value
+        x_bar = np.zeros_like(self.x)
+        u_bar = np.zeros_like(self.u)
+        for i in range(N+1) :
+            x_bar[i] = Sx@x_cvx[i].value + sx
+            u_bar[i] = Su@u_cvx[i].value + su
+
+        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,tr.value
                    
         
     def update(self,x0,u0):
@@ -251,6 +262,7 @@ class Scvx:
 
         # iterations starts!!
         flgChange = True
+        total_num_iter = 0
         for iteration in range(self.maxIter) :
             # differentiate dynamics and cost
             if flgChange == True:
@@ -274,7 +286,7 @@ class Scvx:
             time_derivs = (time.time() - start)
 
             # step2. cvxopt
-            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,delu,self.vcnew, self.trnew = self.cvxopt()
+            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew, self.trnew = self.cvxopt()
             # IPython.embed()
 
             # step3. line-search to find new control sequence, trajectory, cost
@@ -329,23 +341,25 @@ class Scvx:
                                 np.linalg.norm(self.trnew,2) < self.tol_tr and np.max(np.linalg.norm(self.vcnew,1,1)) < self.tol_vc :
                     if self.verbosity == True:
                         print("SUCCEESS: virtual control and trust region < tol")
+                        total_num_iter = iteration
                     break
                 
 
             else :
                 # reduce trust region
-                if self.w_tr >= 100 :
-                    print("TERMINATED: trust region > 100",self.w_tr)
-                    break
+                # if self.w_tr <= 10 :
+                    # print("TERMINATED: trust region < 10",self.w_tr)
+                total_num_iter = -1
+                break
                 print("increase the w_tr")
-                self.w_tr = self.w_tr * 10
+                self.w_tr = self.w_tr / 10
                 # print status
                 if self.verbosity == True :
                     print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.w_tr))
             
             self.xppg,self.uppg,self.cppg = self.forward_full(self.x0[0,:],self.ubar)
 
-        return self.xnew, self.unew, self.xbar, self.ubar
+        return self.xnew, self.unew, self.xbar, self.ubar, total_num_iter
         
 
 
