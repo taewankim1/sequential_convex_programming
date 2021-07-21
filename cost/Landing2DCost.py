@@ -18,8 +18,8 @@ class Landing2D(OptimalcontrolCost):
        
         self.Q = 0.0*np.identity(self.ix)
 
-        self.R = 0 * np.identity(self.iu)
-        self.R[0,0] = 0.01 * self.R[0,0] 
+        self.R = 1e-6 * np.identity(self.iu)
+        self.R[0,0] = 0.0 * self.R[0,0] 
         
 
     def estimate_cost(self,x,u):

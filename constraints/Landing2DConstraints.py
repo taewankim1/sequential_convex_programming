@@ -30,12 +30,12 @@ class Landing2D(OptimalcontrolConstraints):
         thrust = u[1]
 
         h = []
-        h.append(t-np.deg2rad(60) <= 0)
-        h.append(-t-np.deg2rad(60) <= 0)
-        h.append(w-np.deg2rad(60) <= 0)
-        h.append(-w-np.deg2rad(60) <= 0)
-        # h.append(thrust-10 <= 0)
-        h.append(-thrust-0 <= 0)
+        h.append(t-np.deg2rad(90) <= 0)
+        h.append(-t-np.deg2rad(90) <= 0)
+        # h.append(w-np.deg2rad(60) <= 0)
+        # h.append(-w-np.deg2rad(60) <= 0)
+        h.append(thrust-10 <= 0)
+        h.append(-thrust+0 <= 0)
         h.append(gimbal-np.deg2rad(90) <= 0)
         h.append(-gimbal-np.deg2rad(90) <= 0)
         h.append(-ry <= 0)

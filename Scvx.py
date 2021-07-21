@@ -81,50 +81,7 @@ class Scvx:
         self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
         self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
     
-    # def forward(self,x0,u,delu,alpha):
-    #     # TODO - change integral method to odefun
-    #     # horizon
-    #     N = self.N
-        
-    #     # variable setting
-    #     xnew = np.zeros((N+1,self.model.ix))
-    #     unew = np.zeros((N,self.model.iu))
-    #     cnew = np.zeros(N+1)
-        
-    #     # initial state
-    #     xnew[0,:] = x0
-        
-    #     # roll-out
-    #     for i in range(N):
-    #         unew[i,:] = u[i,:] + alpha * delu[i,:]
-    #         xnew[i+1,:] = self.model.forward(xnew[i,:],unew[i,:],i)
-    #         cnew[i] = self.cost.estimate_cost(xnew[i,:],unew[i,:])
-            
-    #     cnew[N] = self.cost.estimate_cost(xnew[N,:],np.zeros(self.model.iu))
-    #     return xnew,unew,cnew
 
-    # def forward_piecewise(self,x,u) :
-    #     N = self.N
-    #     ix = self.model.ix
-    #     iu = self.model.iu
-    #     xnew = np.zeros_like(x)
-
-    #     def dfdt(x,t,u) :
-    #         x = x.reshape((N,ix))
-    #         f = self.model.forward(x,u,discrete=False)
-    #         return f.flatten()
-
-    #     X0 = x[:N].flatten()
-    #     sol = odeint(dfdt,X0,(0,self.model.delT),args=(u,))[-1]
-    #     sol = sol.reshape((N,-1))
-    #     xnew[1:] = sol.reshape((-1,ix))
-    #     xnew[0] = x[0]
-
-    #     cnew = np.zeros(N+1)
-    #     cnew[:N] = self.cost.estimate_cost(xnew[:N],u)
-    #     cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
-
-    #     return xnew,u,cnew
 
     def forward_full(self,x0,u) :
         N = self.N
@@ -166,9 +123,6 @@ class Scvx:
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
 
-        # for i in range(N+1) :
-        #     x_cvx[i] = Sx@x_hat[i] + sx
-        #     u_cvx[i] = Su@u_hat[i] + su
 
         vc = cvx.Variable((N,ix))
         # vc.value = np.zeros((N,ix))
@@ -180,8 +134,8 @@ class Scvx:
 
         constraints = []
         # initial & final boundary condition
-        constraints.append(Sx@x_cvx[0] + sx == self.x0[0])
-        constraints += self.const.bc_final(Sx@x_cvx[-1]+sx,self.x0[-1])
+        constraints.append(Sx@x_cvx[0] + sx == self.xi)
+        constraints += self.const.bc_final(Sx@x_cvx[-1]+sx,self.xf)
 
         # trust region
         for i in range(N+1) :
@@ -232,12 +186,24 @@ class Scvx:
         return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,tr.value
                    
         
-    def update(self,x0,u0):
-        # current position
+    def update(self,x0,u0,xi=None,xf=None):
+        # initial trajectory
         self.x0 = x0
         
         # initial input
         self.u = u0
+
+        # initial condition
+        if xi is None :
+            self.xi = x0[0]
+        else :
+            self.xi = xi
+
+        # final condition
+        if xf is None :
+            self.xf = x0[-1]
+        else :
+            self.xf = xf
         
         # state & input & horizon size
         ix = self.model.ix
@@ -286,7 +252,12 @@ class Scvx:
             time_derivs = (time.time() - start)
 
             # step2. cvxopt
-            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew, self.trnew = self.cvxopt()
+            try :
+                prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew, self.trnew = self.cvxopt()
+            except cvx.SolverError :
+                print("FAIL : Solver fail")
+                total_num_iter = -2
+                break
             # IPython.embed()
 
             # step3. line-search to find new control sequence, trajectory, cost
@@ -304,9 +275,9 @@ class Scvx:
                 dcost = self.c + self.cvc + self.ctr - self.cnew - self.cvcnew - self.ctrnew
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
-                bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.x0[-1,self.const.idx_bc_f],2)
+                bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
                 if  bc_error_norm >= self.tol_bc :
-                    print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
+                    # print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
                     flag_boundary = False
                 else :
                     flag_boundary = True
@@ -321,10 +292,12 @@ class Scvx:
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
-                print("iteration   cost        ||vc||    ||tr||    reduction    expected    w_tr")
+                print("iteration   total_cost  cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
             if flag_cvx == True:
                 if self.verbosity == True:
-                    print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f" % ( iteration,self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,dcost,expected,self.w_tr))
+                    print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration,self.c+self.cvc+self.ctr,
+                                                                                        self.c,self.cvc,self.ctr,
+                                                                                        dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
 
                 # accept changes
                 self.x = self.xbar
@@ -356,6 +329,10 @@ class Scvx:
                 # print status
                 if self.verbosity == True :
                     print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.w_tr))
+
+            if total_num_iter == self.maxIter - 1 :
+                print("FAIL : reached to max iteration")
+                total_num_iter = -1
             
             self.xppg,self.uppg,self.cppg = self.forward_full(self.x0[0,:],self.ubar)
 

@@ -15,6 +15,7 @@ from constraints import OptimalcontrolConstraints
 class UnicycleConstraints(OptimalcontrolConstraints):
     def __init__(self,name,ix,iu,ih):
         super().__init__(name,ix,iu,ih)
+        self.idx_bc_f = slice(0, ix)
         
     def forward(self,x,u,xbar=None,ybar=None):
 
@@ -24,6 +25,12 @@ class UnicycleConstraints(OptimalcontrolConstraints):
         h = []
         # h.append(v-0.2 <= 0)
         # h.append(-w+0 <= 0)
+
+        return h
+
+    def bc_final(self,x_cvx,xf):
+        h = []
+        h.append(x_cvx == xf)
 
         return h
         

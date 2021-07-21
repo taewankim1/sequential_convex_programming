@@ -106,9 +106,9 @@ def plot_rocket3d(fig, x, u, xppg):
 #     ax.set_aspect('equal')
 
 def make_rocket2d_trajectory_fig(x,u,img_name) :
-    N = np.shape(x)[0]
-    Fx = +np.sin(x[:N,4] + u[:,0]) * u[:,1]
-    Fy = -np.cos(x[:N,4] + u[:,0]) * u[:,1]
+    N = np.shape(x)[0] -1
+    Fx = +np.sin(x[:,4] + u[:,0]) * u[:,1]
+    Fy = -np.cos(x[:,4] + u[:,0]) * u[:,1]
     filenames = []
     for i in range(N+10) :
         fS = 18
