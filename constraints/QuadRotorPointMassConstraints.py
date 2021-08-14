@@ -21,7 +21,7 @@ class quadrotorpm(OptimalcontrolConstraints):
         self.T_max = 30
         self.c = c
         self.H = H
-        self.delta_max = np.deg2rad(60)
+        self.delta_max = np.deg2rad(30)
         
     def forward(self,x,u,xbar,ubar):
 

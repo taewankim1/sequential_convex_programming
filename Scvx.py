@@ -285,7 +285,7 @@ class Scvx:
                 flgChange = True
 
                 if self.verbosity == True:
-                    print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
+                    print("%-12d%-12.5g%-12.5g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
                                                                                         self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
                                                                                         dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
 

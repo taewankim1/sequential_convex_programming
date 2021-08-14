@@ -204,12 +204,11 @@ def make_quadrotor_trajectory_fig(x,obs,c,H,r,img_name='quadrotor') :
     for k in range(N):
         xp = x[k]
         lp = obs['point'][k]
-        
+        plt.figure(figsize=(5,8))
         fS = 18
-        plt.figure(figsize=(5,15))
         ax=plt.gca()
         for ce,He,re in zip(c,H,r) :
-            circle1 = plt.Circle((ce[0],ce[1]),re,color='tab:orange',fill=False)
+            circle1 = plt.Circle((ce[0],ce[1]),re,color='tab:red',alpha=0.5,fill=True)
             ax.add_patch(circle1)
         for ro in lp :
             plt.plot([xp[0],ro[0]],[xp[1],ro[1]],color='tab:blue')
