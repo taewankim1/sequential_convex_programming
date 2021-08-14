@@ -16,16 +16,16 @@ import IPython
 class Landing3D(OptimalcontrolConstraints):
     def __init__(self,name,ix,iu,ih):
         super().__init__(name,ix,iu,ih)
-        self.m_dry = 1
-        self.T_min = 0.0
-        self.T_max = 5
-        self.delta_max = np.deg2rad(20)
-        self.theta_max = np.deg2rad(90)
+        self.m_dry = 0.75
+        self.T_min = 0.3
+        self.T_max = 3.0
+        self.delta_max = np.deg2rad(20) # gimbal angle
+        self.theta_max = np.deg2rad(30) # tilt angle
         self.gamma_gs = np.deg2rad(20)
         self.w_max = np.deg2rad(60)
         self.idx_bc_f = slice(1, 14)
         
-    def forward(self,x,u,xbar,ubar):
+    def forward(self,x,u,xbar,ubar,u_epi=0):
         # state & input
         m = x[0]
         rx = x[1]
@@ -49,16 +49,14 @@ class Landing3D(OptimalcontrolConstraints):
         h.append(cvx.norm(x[11:14]) <= self.w_max)
 
         # input constraints
-        # linearized constraint for minimum input
-        # IPython.embed()
-        # h.append(cvx.norm(self.T_min - np.transpose(np.expand_dims(ubar,1))@u / np.linalg.norm(ubar)) <= 0)
         h.append(cvx.norm(u) <= self.T_max)
+        h.append(self.T_min - np.transpose(np.expand_dims(ubar,1))@u / np.linalg.norm(ubar) <= 0)
         h.append(np.cos(self.delta_max) * cvx.norm(u) <= u[2])
         return h
 
     def bc_final(self,x_cvx,xf):
         h = []
-        h.append(x_cvx[1:] == xf[1:])
+        h.append(x_cvx[self.idx_bc_f] == xf[self.idx_bc_f])
 
         return h
     

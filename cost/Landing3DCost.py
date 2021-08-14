@@ -15,9 +15,9 @@ from cost import OptimalcontrolCost
 class Landing3D(OptimalcontrolCost):
     def __init__(self,name,ix,iu,N):
         super().__init__(name,ix,iu,N)
+        self.N = N
        
         self.Q = 0*np.identity(self.ix)
-
         self.R = 0 * np.identity(self.iu)
         self.R[0,0] = 0
         
@@ -44,9 +44,18 @@ class Landing3D(OptimalcontrolCost):
         cost_total = 0.5*(lx + lu)
         
         return cost_total
+
+    def estimate_final_cost(self,x,u) :
+        ndim = np.ndim(x)
+        assert ndim == 1
+        return -x[0]*1e-3
         
-    def estimate_cost_cvx(self,x,u):
+    def estimate_cost_cvx(self,x,u,idx):
+        if idx == self.N :
+            cost_total = -x[0]*1e-3
+            # cost_total = -0*x[0]
         # dimension
-        cost_total = 0.5*(cp.quad_form(x, self.Q) + cp.quad_form(u,self.R))
+        else :
+            cost_total = 0.5*(cp.quad_form(x, self.Q) + cp.quad_form(u,self.R))
         
         return cost_total

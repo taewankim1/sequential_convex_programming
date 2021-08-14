@@ -12,6 +12,8 @@ Rocket Powered Landing with Free-Final-Time (https://arxiv.org/pdf/1802.03827.pd
 * Quadratic approximation for the cost
 * Integration with odeFun
 
+## Obstacle avoidance for a quadrotor
+<img src="images/quadrotor.gif">
 
 ## 3D Landing
 <img src="images/Landing3D.gif">

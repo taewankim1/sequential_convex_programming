@@ -97,9 +97,9 @@ def plot_rocket3d(fig, x, u, xppg):
     scale = x[0, 3]
     ax.auto_scale_xyz([-scale / 2, scale / 2], [-scale / 2, scale / 2], [0, scale])
 
-    pad = plt.Circle((0, 0), 0.2, color='lightgrey')
-    ax.add_patch(pad)
-    art3d.pathpatch_2d_to_3d(pad)
+    # pad = plt.Circle((0, 0), 0.2, color='lightgrey')
+    # ax.add_patch(pad)
+    # art3d.pathpatch_2d_to_3d(pad)
 
     ax.plot(x[:, 1], x[:, 2], x[:, 3])
     ax.plot(xppg[:, 1], xppg[:, 2], xppg[:, 3],'--')
@@ -197,3 +197,35 @@ def plot_Landing2D_trajectory (x,u,xppg=None,delT=0.1) :
     plt.xlabel('time (s)', fontsize = fS)
     plt.ylabel('thrust ()', fontsize = fS)
     plt.show()
+
+def make_quadrotor_trajectory_fig(x,obs,c,H,r,img_name='quadrotor') :
+    filenames = []
+    N = np.shape(x)[0]
+    for k in range(N):
+        xp = x[k]
+        lp = obs['point'][k]
+        
+        fS = 18
+        plt.figure(figsize=(5,15))
+        ax=plt.gca()
+        for ce,He,re in zip(c,H,r) :
+            circle1 = plt.Circle((ce[0],ce[1]),re,color='tab:orange',fill=False)
+            ax.add_patch(circle1)
+        for ro in lp :
+            plt.plot([xp[0],ro[0]],[xp[1],ro[1]],color='tab:blue')
+            plt.plot(ro[0],ro[1],'o',color='tab:blue')
+        plt.plot(xp[0],xp[1],'o',color='black')
+        plt.axis([-2.5, 2.5, -1, 7])
+        plt.gca().set_aspect('equal', adjustable='box')
+        
+        filename = '../images/{:d}.png'.format(k)
+        plt.savefig(filename)
+        filenames.append(filename)
+        plt.close()
+
+    with imageio.get_writer('../images/'+img_name+'.gif', mode='I') as writer:
+        for filename in filenames:
+            image = imageio.imread(filename)
+            writer.append_data(image)
+    for filename in set(filenames):
+        os.remove(filename)

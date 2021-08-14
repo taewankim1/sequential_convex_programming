@@ -1,7 +1,3 @@
-
-# coding: utf-8
-
-# In[4]:
 from __future__ import division
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
@@ -15,16 +11,12 @@ def print_np(x):
     print ("Shape is %s" % (x.shape,))
     # print ("Values are: \n%s" % (x))
 
-
-# In[5]:
 import cost
 import model
 import IPython
 
 from Scaling import compute_scaling
 
-
-# In[7]:
 
 class Scvx:
     def __init__(self,name,horizon,maxIter,Model,Cost,Const,type_discretization='zoh',w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3):
@@ -38,7 +30,7 @@ class Scvx:
         self.verbosity = True
         self.w_vc = w_vc
         self.w_tr = w_tr
-        self.tol_fun = 1e-6
+        # self.tol_fun = 1e-6
         self.tol_tr = tol_tr
         self.tol_vc = tol_vc
         self.tol_bc = tol_bc
@@ -80,8 +72,6 @@ class Scvx:
         self.cxx = np.zeros((self.N+1,self.model.ix,self.model.ix))
         self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
         self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
-    
-
 
     def forward_full(self,x0,u) :
         N = self.N
@@ -105,7 +95,7 @@ class Scvx:
             sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
             cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
-        cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
+        cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
 
         return xnew,u,cnew
         
@@ -119,18 +109,14 @@ class Scvx:
 
         Sx,iSx,sx,Su,iSu,su = compute_scaling(self.x,self.u)
 
-
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
-
 
         vc = cvx.Variable((N,ix))
         # vc.value = np.zeros((N,ix))
 
         tr = cvx.Variable((N+1),nonneg=True)
-
-        # delx = x_cvx - self.x
-        # delu = u_cvx - self.u
+        # tr.value = np.zeros(N+1)
 
         constraints = []
         # initial & final boundary condition
@@ -142,30 +128,30 @@ class Scvx:
             constraints.append(cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) + \
              cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu)) <= tr[i] )
 
-        # inequality contraints
+        # state and input contraints
         for i in range(0,N+1) :
             h = self.const.forward(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,self.x[i],self.u[i])
             constraints += h
-        # IPython.embed()
 
         # model constraints
         for i in range(0,N) :
             if self.type_discretization == 'zoh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)+self.s[i]+self.z[i]+vc[i])
             elif self.type_discretization == 'foh' :
-                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx) + self.Bm[i]@(Su@u_cvx[i]+su)+self.Bp[i]@(Su@u_cvx[i+1]+su)+self.s[i]+self.z[i]+vc[i]) 
+                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.Bm[i]@(Su@u_cvx[i]+su)
+                                                                            +self.Bp[i]@(Su@u_cvx[i+1]+su)
+                                                                            +self.s[i]+self.z[i]+vc[i])
+
 
         # cost
         objective = []
         objective_vc = []
         objective_tr = []
-        objective_test = []
         for i in range(0,N) :
-            objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su))
+            objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,i))
             objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-        objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su))
+        objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su,N))
         objective_tr.append(self.w_tr * cvx.norm(tr,2))
-        # objective_tr.append(0*self.w_tr * cvx.norm(tr,2))
 
         l = cvx.sum(objective)
         l_vc = cvx.sum(objective_vc)
@@ -186,7 +172,7 @@ class Scvx:
         return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,tr.value
                    
         
-    def update(self,x0,u0,xi=None,xf=None):
+    def update(self,x0,u0,xi,xf):
         # initial trajectory
         self.x0 = x0
         
@@ -194,16 +180,10 @@ class Scvx:
         self.u = u0
 
         # initial condition
-        if xi is None :
-            self.xi = x0[0]
-        else :
-            self.xi = xi
+        self.xi = xi
 
         # final condition
-        if xf is None :
-            self.xf = x0[-1]
-        else :
-            self.xf = xf
+        self.xf = xf
         
         # state & input & horizon size
         ix = self.model.ix
@@ -221,10 +201,9 @@ class Scvx:
 
         self.x = self.x0
         self.c = np.sum(self.cost.estimate_cost(self.x[:N,:],self.u[:N]))
-        self.c += self.cost.estimate_cost(self.x[N,:],np.zeros(iu))
+        self.c += self.cost.estimate_final_cost(self.x[N,:],self.u[N,:])
         self.cvc = 0
         self.ctr = 0
-
 
         # iterations starts!!
         flgChange = True
@@ -294,10 +273,6 @@ class Scvx:
                 self.last_head = False
                 print("iteration   total_cost  cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
             if flag_cvx == True:
-                if self.verbosity == True:
-                    print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration,self.c+self.cvc+self.ctr,
-                                                                                        self.c,self.cvc,self.ctr,
-                                                                                        dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
 
                 # accept changes
                 self.x = self.xbar
@@ -309,9 +284,15 @@ class Scvx:
                 self.ctr = l_tr #self.ctrnew #l_tr
                 flgChange = True
 
+                if self.verbosity == True:
+                    print("%-12d%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
+                                                                                        self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
+                                                                                        dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
+
                 # if iteration > 1 and \
-                if iteration > 1 and flag_boundary == True and  \
-                                np.linalg.norm(self.trnew,2) < self.tol_tr and np.max(np.linalg.norm(self.vcnew,1,1)) < self.tol_vc :
+                # if iteration > 1 and flag_boundary == True and  \
+                if flag_boundary == True and  \
+                                self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
                     if self.verbosity == True:
                         print("SUCCEESS: virtual control and trust region < tol")
                         total_num_iter = iteration
@@ -324,11 +305,11 @@ class Scvx:
                     # print("TERMINATED: trust region < 10",self.w_tr)
                 total_num_iter = -1
                 break
-                print("increase the w_tr")
-                self.w_tr = self.w_tr / 10
-                # print status
-                if self.verbosity == True :
-                    print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.w_tr))
+                # print("increase the w_tr")
+                # self.w_tr = self.w_tr / 10
+                # # print status
+                # if self.verbosity == True :
+                #     print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.w_tr))
 
             if total_num_iter == self.maxIter - 1 :
                 print("FAIL : reached to max iteration")

@@ -18,11 +18,12 @@ def print_np(x):
 
 
 class OptimalcontrolModel(object) :
-    def __init__(self,name,ix,iu,delT) :
+    def __init__(self,name,ix,iu,delT,linearization) :
         self.name = name
         self.ix = ix
         self.iu = iu
         self.delT = delT
+        self.type_linearization = linearization
 
     def forward(self,x,u,idx=None,discrete=True):
         print("this is in parent class")
@@ -31,6 +32,62 @@ class OptimalcontrolModel(object) :
     def diff(self) :
         print("this is in parent class")
         pass
+
+    def diff_numeric_central(self,x,u,discrete=True) :
+        # state & input size
+        ix = self.ix
+        iu = self.iu
+        
+        ndim = np.ndim(x)
+        if ndim == 1: # 1 step state & input
+            N = 1
+            x = np.expand_dims(x,axis=0)
+            u = np.expand_dims(u,axis=0)
+        else :
+            N = np.size(x,axis = 0)
+        
+        # numerical difference
+        h = pow(2,-17) / 2
+        eps_x = np.identity(ix)
+        eps_u = np.identity(iu)
+
+        # expand to tensor
+        x_mat = np.expand_dims(x,axis=2)
+        u_mat = np.expand_dims(u,axis=2)
+
+        # diag
+        x_diag = np.tile(x_mat,(1,1,ix))
+        u_diag = np.tile(u_mat,(1,1,iu))
+
+        # augmented = [x_aug x], [u, u_aug]
+        x_aug_m = x_diag - eps_x * h
+        x_aug_m = np.dstack((x_aug_m,np.tile(x_mat,(1,1,iu))))
+        x_aug_m = np.reshape( np.transpose(x_aug_m,(0,2,1)), (N*(iu+ix),ix))
+
+        u_aug_m = u_diag - eps_u * h
+        u_aug_m = np.dstack((np.tile(u_mat,(1,1,ix)),u_aug_m))
+        u_aug_m = np.reshape( np.transpose(u_aug_m,(0,2,1)), (N*(iu+ix),iu))
+
+        # augmented = [x_aug x], [u, u_aug]
+        x_aug_p = x_diag + eps_x * h
+        x_aug_p = np.dstack((x_aug_p,np.tile(x_mat,(1,1,iu))))
+        x_aug_p = np.reshape( np.transpose(x_aug_p,(0,2,1)), (N*(iu+ix),ix))
+
+        u_aug_p = u_diag + eps_u * h
+        u_aug_p = np.dstack((np.tile(u_mat,(1,1,ix)),u_aug_p))
+        u_aug_p = np.reshape( np.transpose(u_aug_p,(0,2,1)), (N*(iu+ix),iu))
+
+        # numerical difference
+        f_change_m = self.forward(x_aug_m,u_aug_m,0,discrete=discrete)
+        f_change_p = self.forward(x_aug_p,u_aug_p,0,discrete=discrete)
+        f_change_m = np.reshape(f_change_m,(N,ix+iu,ix))
+        f_change_p = np.reshape(f_change_p,(N,ix+iu,ix))
+        f_diff = (f_change_p - f_change_m) / (2*h)
+        f_diff = np.transpose(f_diff,[0,2,1])
+        fx = f_diff[:,:,0:ix]
+        fu = f_diff[:,:,ix:ix+iu]
+        
+        return np.squeeze(fx), np.squeeze(fu)
 
     def diff_numeric(self,x,u,discrete=True) :
         # state & input size
@@ -103,7 +160,12 @@ class OptimalcontrolModel(object) :
             Phi = Phi.transpose().reshape((length,ix,ix))
             Phi_inv = np.linalg.inv(Phi)
             f = self.forward(x,u,discrete=False)
-            A,B = self.diff_numeric(x,u,discrete=False)
+            if self.type_linearization == "numeric_central" :
+                A,B = self.diff_numeric_central(x,u,discrete=False)
+            elif self.type_linearization == "numeric_forward" :
+                A,B = self.diff_numeric(x,u,discrete=False)
+            elif self.type_linearization == "analytic" :
+                A,B = self.diff(x,u,discrete=False)
             # IPython.embed()
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
             dbdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose()

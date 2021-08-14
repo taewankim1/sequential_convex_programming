@@ -44,8 +44,11 @@ class Landing2D(OptimalcontrolCost):
         cost_total = 0.5*(lx + lu)
         
         return cost_total
+
+    def estimate_final_cost(self,x,u) :
+        return self.estimate_cost(x,u)
         
-    def estimate_cost_cvx(self,x,u):
+    def estimate_cost_cvx(self,x,u,idx=0):
         # dimension
         cost_total = 0.5*(cp.quad_form(x, self.Q) + cp.quad_form(u,self.R))
         

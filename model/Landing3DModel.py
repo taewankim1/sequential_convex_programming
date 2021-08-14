@@ -14,12 +14,12 @@ from model import OptimalcontrolModel
 class Landing3D(OptimalcontrolModel):
     def __init__(self,name,ix,iu,delT):
         super().__init__(name,ix,iu,delT)
-        self.m_wet = 2
-        self.m_dry = 1
+        # self.m_wet = 2
+        # self.m_dry = 0.75
         self.J = 1e-2 * np.array([1,1,1])
-        self.r_t = np.array([0,0,-1e-2])
+        self.r_t = 1e-2*np.array([0,0,-1])
         self.g = np.array([0,0,-1])
-        self.alpha_m = 0.05
+        self.alpha_m = 0.1
 
     def get_dcm(self,q) :
         N = q.shape[0]
@@ -136,11 +136,10 @@ class Landing3D(OptimalcontrolModel):
         f = np.zeros_like(x)
         f[:,0] = - self.alpha_m * np.linalg.norm(u,axis=1)
         f[:,1:4] = x[:,4:7]
-        f[:,4:7] = 1 / x[:,0:1] * np.matmul(C_I_B,np.expand_dims(u,2)).squeeze() + \
-                             np.repeat(np.expand_dims(self.g,0),N,axis=0)
-        f[:,7:11] = 0.5 * np.matmul(omega_w, np.expand_dims(q,2)).squeeze()
-        f[:,11:14] = J_inv * np.matmul(skew_r_t,np.expand_dims(u,2)).squeeze() - \
-                         np.matmul(skew_w, np.expand_dims(w,2)).squeeze()
+        f[:,4:7] = 1/x[:,0:1]*(C_I_B@np.expand_dims(u,2)).squeeze()+np.repeat(np.expand_dims(self.g,0),N,axis=0) 
+        f[:,7:11] = 0.5*(omega_w@np.expand_dims(q,2)).squeeze()
+        f[:,11:14] = J_inv * (skew_r_t@np.expand_dims(u,2)).squeeze() - \
+                         (skew_w@np.expand_dims(w,2)).squeeze()
 
         if discrete is True :
             return np.squeeze(x + f * self.delT)
