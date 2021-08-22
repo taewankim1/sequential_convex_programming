@@ -19,7 +19,9 @@ from Scaling import compute_scaling
 
 
 class Scvx:
-    def __init__(self,name,horizon,maxIter,Model,Cost,Const,type_discretization='zoh',w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3):
+    def __init__(self,name,horizon,maxIter,Model,Cost,Const,type_discretization='zoh',
+                        w_c=1,w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3,
+                        flag_policyopt=False,verbosity=True):
         self.name = name
         self.model = Model
         self.const = Const
@@ -27,7 +29,8 @@ class Scvx:
         self.N = horizon
         
         # cost optimization
-        self.verbosity = True
+        self.verbosity = verbosity
+        self.w_c = w_c
         self.w_vc = w_vc
         self.w_tr = w_tr
         # self.tol_fun = 1e-6
@@ -37,6 +40,7 @@ class Scvx:
         self.maxIter = maxIter
         self.last_head = True
         self.type_discretization = type_discretization   
+        self.flag_policyopt = flag_policyopt
         self.initialize()
         
     def initialize(self) :
@@ -45,6 +49,8 @@ class Scvx:
         self.x0 = np.zeros(self.model.ix)
         self.x = np.zeros((self.N+1,self.model.ix))
         self.u = np.ones((self.N+1,self.model.iu))
+        self.xbar = np.zeros((self.N+1,self.model.ix))
+        self.ubar = np.ones((self.N+1,self.model.iu))
         self.vc = np.ones((self.N,self.model.ix)) * 1e-1
         self.tr = np.ones((self.N+1))
 
@@ -72,6 +78,9 @@ class Scvx:
         self.cxx = np.zeros((self.N+1,self.model.ix,self.model.ix))
         self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
         self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
+
+    def get_model(self) :
+        return self.A,self.B,self.s,self.z,self.vc
 
     def forward_full(self,x0,u) :
         N = self.N
@@ -125,8 +134,11 @@ class Scvx:
 
         # trust region
         for i in range(N+1) :
-            constraints.append(cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) + \
-             cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu)) <= tr[i] )
+            if self.flag_policyopt is True :
+                constraints.append(cvx.quad_form(u_cvx[i]-iSu@(self.u0[i]-su),np.eye(iu)) <= tr[i] )
+            else :
+                constraints.append(cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) + \
+                 cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu)) <= tr[i] )
 
         # state and input contraints
         for i in range(0,N+1) :
@@ -148,9 +160,9 @@ class Scvx:
         objective_vc = []
         objective_tr = []
         for i in range(0,N) :
-            objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,i))
+            objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,i))
             objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-        objective.append(self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su,N))
+        objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su,N))
         objective_tr.append(self.w_tr * cvx.norm(tr,2))
 
         l = cvx.sum(objective)
@@ -168,15 +180,16 @@ class Scvx:
         for i in range(N+1) :
             x_bar[i] = Sx@x_cvx[i].value + sx
             u_bar[i] = Su@u_cvx[i].value + su
-
+        # IPython.embed()
         return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,tr.value
                    
         
-    def update(self,x0,u0,xi,xf):
+    def run(self,x0,u0,xi,xf):
         # initial trajectory
         self.x0 = x0
         
         # initial input
+        self.u0 = u0
         self.u = u0
 
         # initial condition
@@ -237,7 +250,11 @@ class Scvx:
                 print("FAIL : Solver fail")
                 total_num_iter = -2
                 break
-            # IPython.embed()
+            except ValueError :
+                print("FAIL : Solver fail")
+                total_num_iter = -2
+                break
+
 
             # step3. line-search to find new control sequence, trajectory, cost
             flag_cvx = False
@@ -245,7 +262,6 @@ class Scvx:
             if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
                 flag_cvx = True
                 start = time.time()
-                # self.xnew,self.unew,self.cnew = self.forward_piecewise(self.xbar,self.ubar)
                 self.xnew,self.unew,self.cnew = self.forward_full(self.x0[0,:],self.ubar)
                 self.cnew = np.sum(self.cnew)
                 self.cvcnew = np.sum(self.w_vc*np.linalg.norm(self.vcnew,1,1))
@@ -260,62 +276,46 @@ class Scvx:
                     flag_boundary = False
                 else :
                     flag_boundary = True
-                if expected < 0 and iteration > 0 :
+                if expected < 0 and iteration > 0 and self.verbosity is True:
                     print("non-positive expected reduction")
                 time_forward = time.time() - start
             else :
                 print("CVXOPT Failed: should not occur")
+                total_num_iter = -2
                 dcost = 0
                 expected = 0
+                break
 
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
                 print("iteration   total_cost  cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
-            if flag_cvx == True:
+            # accept changes
+            self.x = self.xbar
+            self.u = self.ubar
+            self.vc = self.vcnew
+            self.tr = self.trnew
+            self.c = l #self.cnew #l
+            self.cvc = l_vc #self.cvcnew #l_vc
+            self.ctr = l_tr #self.ctrnew #l_tr
+            flgChange = True
 
-                # accept changes
-                self.x = self.xbar
-                self.u = self.ubar
-                self.vc = self.vcnew
-                self.tr = self.trnew
-                self.c = l #self.cnew #l
-                self.cvc = l_vc #self.cvcnew #l_vc
-                self.ctr = l_tr #self.ctrnew #l_tr
-                flgChange = True
+            if self.verbosity == True:
+                print("%-12d%-12.6f%-12.6f%-12.3g%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
+                                                                                    self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
+                                                                                    dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
 
+            if flag_boundary == True and  \
+                            self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
                 if self.verbosity == True:
-                    print("%-12d%-12.5g%-12.5g%-12.3g%-12.3g%-12.3g%-12.3g%-12.1f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
-                                                                                        self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
-                                                                                        dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
-
-                # if iteration > 1 and \
-                # if iteration > 1 and flag_boundary == True and  \
-                if flag_boundary == True and  \
-                                self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
-                    if self.verbosity == True:
-                        print("SUCCEESS: virtual control and trust region < tol")
-                        total_num_iter = iteration
-                    break
-                
-
-            else :
-                # reduce trust region
-                # if self.w_tr <= 10 :
-                    # print("TERMINATED: trust region < 10",self.w_tr)
-                total_num_iter = -1
+                    print("SUCCEESS: virtual control and trust region < tol")
+                    total_num_iter = iteration
                 break
-                # print("increase the w_tr")
-                # self.w_tr = self.w_tr / 10
-                # # print status
-                # if self.verbosity == True :
-                #     print("%-12d%-12s%-12s%-12s%-12.3g%-12.3g%-12.1f" % ( iteration,'NOSTEP','NOSTEP','NOSTEP',dcost,expected,self.w_tr))
-
-            if total_num_iter == self.maxIter - 1 :
+            if iteration == self.maxIter - 1 :
                 print("FAIL : reached to max iteration")
                 total_num_iter = -1
             
-            self.xppg,self.uppg,self.cppg = self.forward_full(self.x0[0,:],self.ubar)
+            # self.xppg,self.uppg,self.cppg = self.forward_full(self.x0[0,:],self.ubar)
 
         return self.xnew, self.unew, self.xbar, self.ubar, total_num_iter
         

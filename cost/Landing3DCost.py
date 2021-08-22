@@ -48,11 +48,11 @@ class Landing3D(OptimalcontrolCost):
     def estimate_final_cost(self,x,u) :
         ndim = np.ndim(x)
         assert ndim == 1
-        return -x[0]*1e-3
+        return -x[0]
         
     def estimate_cost_cvx(self,x,u,idx):
         if idx == self.N :
-            cost_total = -x[0]*1e-3
+            cost_total = -x[0]
             # cost_total = -0*x[0]
         # dimension
         else :

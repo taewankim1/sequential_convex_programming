@@ -19,11 +19,10 @@ def print_np(x):
 
 
 class OptimalcontrolConstraints(object) :
-    def __init__(self,name,ix,iu,ih) :
+    def __init__(self,name,ix,iu) :
         self.name = name
         self.ix = ix
         self.iu = iu
-        self.ih = ih 
 
     def forward(self) :
         print("this is in parent class")

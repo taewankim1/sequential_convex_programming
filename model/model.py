@@ -228,7 +228,12 @@ class OptimalcontrolModel(object) :
             Phi = Phi.transpose().reshape((length,ix,ix))
             Phi_inv = np.linalg.inv(Phi)
             f = self.forward(x,u,discrete=False)
-            A,B = self.diff_numeric(x,u,discrete=False)
+            if self.type_linearization == "numeric_central" :
+                A,B = self.diff_numeric_central(x,u,discrete=False)
+            elif self.type_linearization == "numeric_forward" :
+                A,B = self.diff_numeric(x,u,discrete=False)
+            elif self.type_linearization == "analytic" :
+                A,B = self.diff(x,u,discrete=False)
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
             dbmdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * alpha
             dbpdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * beta

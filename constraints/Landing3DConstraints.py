@@ -14,13 +14,13 @@ from constraints import OptimalcontrolConstraints
 import IPython
 
 class Landing3D(OptimalcontrolConstraints):
-    def __init__(self,name,ix,iu,ih):
-        super().__init__(name,ix,iu,ih)
+    def __init__(self,name,ix,iu):
+        super().__init__(name,ix,iu)
         self.m_dry = 0.75
         self.T_min = 0.3
-        self.T_max = 3.0
-        self.delta_max = np.deg2rad(20) # gimbal angle
-        self.theta_max = np.deg2rad(30) # tilt angle
+        self.T_max = 5.0
+        self.delta_max = np.deg2rad(30) # gimbal angle
+        self.theta_max = np.deg2rad(60) # tilt angle
         self.gamma_gs = np.deg2rad(20)
         self.w_max = np.deg2rad(60)
         self.idx_bc_f = slice(1, 14)
