@@ -14,29 +14,15 @@ from model import OptimalcontrolModel
 class Landing3D(OptimalcontrolModel):
     def __init__(self,name,ix,iu,delT,linearization="numeric_central"):
         super().__init__(name,ix,iu,delT,linearization)
-
         # self.m_wet = 2
         # self.m_dry = 0.75
-        # self.J = 1e-2
-        # self.J_mat = self.J * np.array([1,1,1])
-        # self.r_t = 1e-2
-        # self.r_t_mat = self.r_t * np.array([0,0,-1])
-        # self.g = 1
-        # self.g_mat = self.g * np.array([0,0,-1])
-        # self.alpha_m = 0.05
-
-        # param from Successive Convexification for Real-Time Six-Degree-of-Freedom Powered Descent Guidance with State-Triggered Constraints
-        self.J_x = 0.168 * 1
-        self.J_y = 0.168 * 1
-        self.J_z = 0.168 * 1e-2
-        self.J_mat = np.array([self.J_x,self.J_y,self.J_z])
-        self.r_t = 0.25
-        self.r_t_mat = self.r_t * np.array([0,0,-1])
+        self.J = 1e-2
+        self.J_mat = self.J * np.array([1,1,1])
+        self.r_t = 1e-2
+        self.r_t_mat = self.r_t * np.array([-1,0,0])
         self.g = 1
-        self.g_mat = self.g * np.array([0,0,-1])
+        self.g_mat = self.g * np.array([-1,0,0])
         self.alpha_m = 0.01
-
-
 
     def get_dcm(self,q) :
         N = q.shape[0]
@@ -136,7 +122,7 @@ class Landing3D(OptimalcontrolModel):
         q1 = x[:,8]
         q2 = x[:,9]
         q3 = x[:,10]
-        
+
         wx = x[:,11]
         wy = x[:,12]
         wz = x[:,13]
@@ -155,8 +141,6 @@ class Landing3D(OptimalcontrolModel):
         r_t_repeat = np.repeat(np.expand_dims(self.r_t_mat,0),N,axis=0) 
         skew_r_t = self.get_skew(r_t_repeat)
 
-        J_x,J_y,J_z = self.J_x,self.J_y,self.J_z
-        r_t = self.r_t
         J_inv = np.repeat(1/np.expand_dims(self.J_mat,0),N,axis=0)
         # output
         f = np.zeros_like(x)
@@ -164,16 +148,15 @@ class Landing3D(OptimalcontrolModel):
         f[:,1] = vx
         f[:,2] = vy
         f[:,3] = vz
-        f[:,4] = ux*(-2*q2**2 - 2*q3**2 + 1)/m + uy*(-2*q0*q3 + 2*q1*q2)/m + uz*(2*q0*q2 + 2*q1*q3)/m
+        f[:,4] = -self.g + ux*(-2*q2**2 - 2*q3**2 + 1)/m + uy*(-2*q0*q3 + 2*q1*q2)/m + uz*(2*q0*q2 + 2*q1*q3)/m
         f[:,5] = ux*(2*q0*q3 + 2*q1*q2)/m + uy*(-2*q1**2 - 2*q3**2 + 1)/m + uz*(-2*q0*q1 + 2*q2*q3)/m
-        f[:,6] = -self.g + ux*(-2*q0*q2 + 2*q1*q3)/m + uy*(2*q0*q1 + 2*q2*q3)/m + uz*(-2*q1**2 - 2*q2**2 + 1)/m
+        f[:,6] = ux*(-2*q0*q2 + 2*q1*q3)/m + uy*(2*q0*q1 + 2*q2*q3)/m + uz*(-2*q1**2 - 2*q2**2 + 1)/m
         f[:,7] = -0.5*q1*wx - 0.5*q2*wy - 0.5*q3*wz
         f[:,8] = 0.5*q0*wx + 0.5*q2*wz - 0.5*q3*wy
         f[:,9] = 0.5*q0*wy - 0.5*q1*wz + 0.5*q3*wx
         f[:,10] = 0.5*q0*wz + 0.5*q1*wy - 0.5*q2*wx
-        f[:,11] = (J_y*wy*wz - J_z*wy*wz + self.r_t*uy)/J_x
-        f[:,12] = (-J_x*wx*wz + J_z*wx*wz - self.r_t*ux)/J_y
-        f[:,13] = (J_x*wx*wy - J_y*wx*wy)/J_z
+        f[:,12] = 1.0*self.r_t*uz/self.J
+        f[:,13] = -1.0*self.r_t*uy/self.J
 
         if discrete is True :
             return np.squeeze(x + f * self.delT)
@@ -213,8 +196,6 @@ class Landing3D(OptimalcontrolModel):
         ux = u[:,0]
         uy = u[:,1]
         uz = u[:,2]
-
-        J_x,J_y,J_z = self.J_x,self.J_y,self.J_z
 
         fx = np.zeros((N,ix,ix))
         fx[:,1,4] = 1
@@ -259,15 +240,9 @@ class Landing3D(OptimalcontrolModel):
         fx[:,10,11] = -0.5*q2
         fx[:,10,12] = 0.5*q1
         fx[:,10,13] = 0.5*q0
-        fx[:,11,12] = (J_y*wz - J_z*wz)/J_x
-        fx[:,11,13] = (J_y*wy - J_z*wy)/J_x
-        fx[:,12,11] = (-J_x*wz + J_z*wz)/J_y
-        fx[:,12,13] = (-J_x*wx + J_z*wx)/J_y
-        fx[:,13,11] = (J_x*wy - J_y*wy)/J_z
-        fx[:,13,12] = (J_x*wx - J_y*wx)/J_z
 
         alpha_m = self.alpha_m
-        # J = self.J
+        J = self.J
         r_t = self.r_t
 
         fu = np.zeros((N,ix,iu))
@@ -284,8 +259,8 @@ class Landing3D(OptimalcontrolModel):
         fu[:,6,0] = (-2*q0*q2 + 2*q1*q3)/m
         fu[:,6,1] = (2*q0*q1 + 2*q2*q3)/m
         fu[:,6,2] = (-2*q1**2 - 2*q2**2 + 1)/m
-        fu[:,11,1] = r_t/J_x
-        fu[:,12,0] = -r_t/J_y
+        fu[:,12,2] = 1.0*r_t/J
+        fu[:,13,1] = -1.0*r_t/J
 
         return fx.squeeze(),fu.squeeze()
 

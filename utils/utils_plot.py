@@ -65,7 +65,7 @@ def make_rocket3d_trajectory_fig(x,u,img_name='untitled') :
     for filename in set(filenames):
         os.remove(filename)
 
-def plot_rocket3d(fig, x, u, xppg):
+def plot_rocket3d(fig, x, u, xppg=None):
     ax = fig.add_subplot(111, projection='3d')
 
     N = np.shape(x)[0]
@@ -102,7 +102,8 @@ def plot_rocket3d(fig, x, u, xppg):
     # art3d.pathpatch_2d_to_3d(pad)
 
     ax.plot(x[:, 1], x[:, 2], x[:, 3])
-    ax.plot(xppg[:, 1], xppg[:, 2], xppg[:, 3],'--')
+    if xppg is not None :
+        ax.plot(xppg[:, 1], xppg[:, 2], xppg[:, 3],'--')
 #     ax.set_aspect('equal')
 
 def make_rocket2d_trajectory_fig(x,u,img_name) :

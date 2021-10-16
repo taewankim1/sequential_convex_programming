@@ -42,7 +42,7 @@ class Scvx:
         self.type_discretization = type_discretization   
         self.flag_policyopt = flag_policyopt
         self.initialize()
-        
+
     def initialize(self) :
         
         self.dV = np.zeros((1,2))
@@ -107,7 +107,7 @@ class Scvx:
         cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
 
         return xnew,u,cnew
-        
+
     def cvxopt(self):
         # TODO - we can get rid of most of loops here
 
@@ -120,29 +120,16 @@ class Scvx:
 
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
-
         vc = cvx.Variable((N,ix))
-        # vc.value = np.zeros((N,ix))
 
-        tr = cvx.Variable((N+1),nonneg=True)
-        # tr.value = np.zeros(N+1)
-
-        constraints = []
         # initial & final boundary condition
+        constraints = []
         constraints.append(Sx@x_cvx[0] + sx == self.xi)
         constraints += self.const.bc_final(Sx@x_cvx[-1]+sx,self.xf)
 
-        # trust region
-        for i in range(N+1) :
-            if self.flag_policyopt is True :
-                constraints.append(cvx.quad_form(u_cvx[i]-iSu@(self.u0[i]-su),np.eye(iu)) <= tr[i] )
-            else :
-                constraints.append(cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) + \
-                 cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu)) <= tr[i] )
-
         # state and input contraints
         for i in range(0,N+1) :
-            h = self.const.forward(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,self.x[i],self.u[i])
+            h = self.const.forward(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,self.x[i],self.u[i],i==N)
             constraints += h
 
         # model constraints
@@ -154,16 +141,20 @@ class Scvx:
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
                                                                             +self.s[i]+self.z[i]+vc[i])
 
-
         # cost
         objective = []
         objective_vc = []
         objective_tr = []
-        for i in range(0,N) :
-            objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[i]+sx,Su@u_cvx[i]+su,i))
-            objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-        objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[N]+sx,Su@u_cvx[N]+su,N))
-        objective_tr.append(self.w_tr * cvx.norm(tr,2))
+        for i in range(0,N+1) :
+            if i < N :
+                objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
+            objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[i]+
+                                    sx,Su@u_cvx[i]+su,i))
+            if self.flag_policyopt is True :
+                objective_tr.append( self.w_tr * (cvx.quad_form(u_cvx[i]-iSu@(self.u_const[i]-su),np.eye(iu))) )
+            else :
+                objective_tr.append( self.w_tr * (cvx.quad_form(x_cvx[i] -
+                                    iSx@(self.x[i]-sx),np.eye(ix)) + cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu))) )
 
         l = cvx.sum(objective)
         l_vc = cvx.sum(objective_vc)
@@ -171,26 +162,48 @@ class Scvx:
 
         l_all = l + l_vc + l_tr
         prob = cvx.Problem(cvx.Minimize(l_all), constraints)
-        prob.solve(verbose=False,solver=cvx.ECOS)
+
+        error = False
+        try :
+            prob.solve(verbose=False,solver=cvx.ECOS,warm_start=True)
+        except cvx.SolverError:
+            print("FAIL: SolverError")
+            error = True
+
         if prob.status == cvx.OPTIMAL_INACCURATE :
             print("WARNING: inaccurate solution")
 
-        x_bar = np.zeros_like(self.x)
-        u_bar = np.zeros_like(self.u)
-        for i in range(N+1) :
-            x_bar[i] = Sx@x_cvx[i].value + sx
-            u_bar[i] = Su@u_cvx[i].value + su
-        # IPython.embed()
-        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,tr.value
+        try :
+            x_bar = np.zeros_like(self.x)
+            u_bar = np.zeros_like(self.u)
+            for i in range(N+1) :
+                x_bar[i] = Sx@x_cvx[i].value + sx
+                u_bar[i] = Su@u_cvx[i].value + su
+        except ValueError :
+            print("FAIL: ValueError")
+            error = True
+        except TypeError :
+            print("FAIL: TypeError")
+            error = True
+        # print("x_min {:f} x_max {:f} u_min {:f} u _max{:f}".format(np.min(x_cvx.value),
+        #                                                         np.max(x_cvx.value),
+        #                                                         np.min(u_cvx.value),
+        #                                                         np.max(u_cvx.value)))
+
+        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,error
                    
         
-    def run(self,x0,u0,xi,xf):
+    def run(self,x0,u0,xi,xf,u_const=None):
         # initial trajectory
         self.x0 = x0
         
         # initial input
         self.u0 = u0
         self.u = u0
+        if u_const is None :
+            self.u_const = u0
+        else :
+            self.u_const = u_const
 
         # initial condition
         self.xi = xi
@@ -221,7 +234,9 @@ class Scvx:
         # iterations starts!!
         flgChange = True
         total_num_iter = 0
+        flag_boundary = False
         for iteration in range(self.maxIter) :
+
             # differentiate dynamics and cost
             if flgChange == True:
                 start = time.time()
@@ -230,7 +245,6 @@ class Scvx:
                 elif self.type_discretization == 'foh' :
                     self.A,self.Bm,self.Bp,self.s,self.z = self.model.diff_discrete_foh(self.x[0:N,:],self.u)
 
-                # IPython.embed()
                 # remove small element
                 eps_machine = np.finfo(float).eps
                 self.A[np.abs(self.A) < eps_machine] = 0
@@ -244,30 +258,23 @@ class Scvx:
             time_derivs = (time.time() - start)
 
             # step2. cvxopt
-            try :
-                prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew, self.trnew = self.cvxopt()
-            except cvx.SolverError :
-                print("FAIL : Solver fail")
-                total_num_iter = -2
+            # try :
+            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew,error = self.cvxopt()
+            if error == True :
+                total_num_iter = 1e5
                 break
-            except ValueError :
-                print("FAIL : Solver fail")
-                total_num_iter = -2
-                break
+
 
 
             # step3. line-search to find new control sequence, trajectory, cost
             flag_cvx = False
-            flag_boundary = False
             if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
                 flag_cvx = True
                 start = time.time()
                 self.xnew,self.unew,self.cnew = self.forward_full(self.x0[0,:],self.ubar)
                 self.cnew = np.sum(self.cnew)
-                self.cvcnew = np.sum(self.w_vc*np.linalg.norm(self.vcnew,1,1))
-                self.ctrnew = np.sum(self.w_tr*np.linalg.norm(self.trnew,2))
 
-                dcost = self.c + self.cvc + self.ctr - self.cnew - self.cvcnew - self.ctrnew
+                dcost = self.c + self.cvc + self.ctr - self.cnew - l_vc - l_tr
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
                 bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
@@ -281,7 +288,7 @@ class Scvx:
                 time_forward = time.time() - start
             else :
                 print("CVXOPT Failed: should not occur")
-                total_num_iter = -2
+                total_num_iter = 1e5
                 dcost = 0
                 expected = 0
                 break
@@ -294,30 +301,26 @@ class Scvx:
             self.x = self.xbar
             self.u = self.ubar
             self.vc = self.vcnew
-            self.tr = self.trnew
-            self.c = l #self.cnew #l
-            self.cvc = l_vc #self.cvcnew #l_vc
-            self.ctr = l_tr #self.ctrnew #l_tr
+            self.c = l 
+            self.cvc = l_vc 
+            self.ctr = l_tr
             flgChange = True
 
             if self.verbosity == True:
                 print("%-12d%-12.6f%-12.6f%-12.3g%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
                                                                                     self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
                                                                                     dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
-
             if flag_boundary == True and  \
                             self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
                 if self.verbosity == True:
                     print("SUCCEESS: virtual control and trust region < tol")
-                    total_num_iter = iteration
+                    total_num_iter = iteration+1
                 break
             if iteration == self.maxIter - 1 :
-                print("FAIL : reached to max iteration")
-                total_num_iter = -1
-            
-            # self.xppg,self.uppg,self.cppg = self.forward_full(self.x0[0,:],self.ubar)
+                print("NOT ENOUGH : reached to max iteration")
+                total_num_iter = iteration+1
 
-        return self.xnew, self.unew, self.xbar, self.ubar, total_num_iter
+        return self.xnew,self.unew,self.xbar,self.ubar,total_num_iter,flag_boundary,l,l_vc,l_tr
         
 
 

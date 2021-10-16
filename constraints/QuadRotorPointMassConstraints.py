@@ -15,7 +15,7 @@ import IPython
 class quadrotorpm(OptimalcontrolConstraints):
     def __init__(self,name,ix,iu,c=None,H=None):
         super().__init__(name,ix,iu)
-        self.theta_max = np.deg2rad(30) # tilt angle
+        # self.theta_max = np.deg2rad(30) # tilt angle
         self.idx_bc_f = slice(0, 6)
         self.T_min = 5
         self.T_max = 30
@@ -27,7 +27,7 @@ class quadrotorpm(OptimalcontrolConstraints):
         self.c = c
         self.H = H
         
-    def forward(self,x,u,xbar,ubar):
+    def forward(self,x,u,xbar,ubar,idx=None):
 
         h = []
         # state constraints
