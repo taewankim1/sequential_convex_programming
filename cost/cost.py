@@ -25,6 +25,9 @@ class OptimalcontrolCost(object) :
         print("this is in parent class")
         pass
 
+    def estimate_final_cost(self,x,u) :
+        return self.estimate_cost(x,u)
+
     # def diff_cost(self,x,u):
         
     #     # state & input size

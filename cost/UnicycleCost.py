@@ -49,7 +49,7 @@ class unicycle(OptimalcontrolCost):
         
         return cost_total
         
-    def estimate_cost_cvx(self,x,u):
+    def estimate_cost_cvx(self,x,u,idx=None):
         # dimension
         cost_total = 0.5*(cp.quad_form(x, self.Q) + cp.quad_form(u,self.R))
         
