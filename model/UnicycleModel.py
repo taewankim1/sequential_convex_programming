@@ -11,7 +11,7 @@ import random
 def print_np(x):
     print ("Type is %s" % (type(x)))
     print ("Shape is %s" % (x.shape,))
-    print ("Values are: \n%s" % (x))
+    # print ("Values are: \n%s" % (x))
 
 from model import OptimalcontrolModel
 
@@ -20,7 +20,6 @@ class unicycle(OptimalcontrolModel):
         super().__init__(name,ix,iu,delT,linearzation)
         
     def forward(self,x,u,idx=None,discrete=True):
-        
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1

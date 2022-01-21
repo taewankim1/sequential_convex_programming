@@ -34,3 +34,24 @@ def forward_full(model,x0,u,N,type_discretization="zoh") :
     # cnew[N] = self.cost.estimate_cost(xnew[N],np.zeros(self.model.iu))
 
     return xnew,u
+
+
+def forward_one_step(model,x,u) :
+    ix = model.ix
+    iu = model.iu    
+
+    N = np.size(x,axis = 0)
+
+    def dfdt(t,x,u) :
+        x_ = np.reshape(x,(N,ix)) 
+        u_ = np.reshape(u,(N,iu)) 
+        x_dot = np.squeeze(model.forward(x_,u_,discrete=False))
+        x_dot = np.reshape(x_dot,(ix*N))
+        return x_dot
+
+    x = np.reshape(x,(ix*N)) 
+    u = np.reshape(u,(iu*N)) 
+    sol = solve_ivp(dfdt,(0,model.delT),x,args=(u,),method='RK45',rtol=1e-6,atol=1e-10)
+    x_next = sol.y[:,-1]
+    x_next = np.reshape(x_next,(N,ix)) 
+    return x_next

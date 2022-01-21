@@ -15,11 +15,10 @@ import cost
 import model
 import IPython
 
-from Scaling import compute_scaling
-
+from Scaling import TrajectoryScaling
 
 class Scvx:
-    def __init__(self,name,horizon,maxIter,Model,Cost,Const,type_discretization='zoh',
+    def __init__(self,name,horizon,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
                         w_c=1,w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3,
                         flag_policyopt=False,verbosity=True):
         self.name = name
@@ -27,6 +26,12 @@ class Scvx:
         self.const = Const
         self.cost = Cost
         self.N = horizon
+        if Scaling is None :
+            self.Scaling = TrajectoryScaling() 
+            self.flag_update_scale = True
+        else :
+            self.Scaling = Scaling
+            self.flag_update_scale = False
         
         # cost optimization
         self.verbosity = verbosity
@@ -101,7 +106,8 @@ class Scvx:
         cnew = np.zeros(N+1)
 
         for i in range(N) :
-            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            # sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45')
             xnew[i+1] = sol.y[:,-1]
             cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
         cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
@@ -116,7 +122,9 @@ class Scvx:
         iu = self.model.iu
         N = self.N
 
-        Sx,iSx,sx,Su,iSu,su = compute_scaling(self.x,self.u)
+        if self.flag_update_scale is True :
+            self.Scaling.update_scaling_from_traj(self.x,self.u)
+        Sx,iSx,sx,Su,iSu,su = self.Scaling.get_scaling()
 
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
@@ -189,7 +197,6 @@ class Scvx:
         #                                                         np.max(x_cvx.value),
         #                                                         np.min(u_cvx.value),
         #                                                         np.max(u_cvx.value)))
-
         return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,error
                    
         
@@ -254,7 +261,6 @@ class Scvx:
 
                 flgChange = False
                 pass
-
             time_derivs = (time.time() - start)
 
             # step2. cvxopt
@@ -263,8 +269,6 @@ class Scvx:
             if error == True :
                 total_num_iter = 1e5
                 break
-
-
 
             # step3. line-search to find new control sequence, trajectory, cost
             flag_cvx = False
@@ -278,11 +282,13 @@ class Scvx:
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
                 bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
+
                 if  bc_error_norm >= self.tol_bc :
                     # print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
                     flag_boundary = False
                 else :
                     flag_boundary = True
+
                 if expected < 0 and iteration > 0 and self.verbosity is True:
                     print("non-positive expected reduction")
                 time_forward = time.time() - start
@@ -296,7 +302,7 @@ class Scvx:
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
-                print("iteration   total_cost  cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
+                print("iteration   total_cost        cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
             # accept changes
             self.x = self.xbar
             self.u = self.ubar
@@ -307,7 +313,7 @@ class Scvx:
             flgChange = True
 
             if self.verbosity == True:
-                print("%-12d%-12.6f%-12.6f%-12.3g%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
+                print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
                                                                                     self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
                                                                                     dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
             if flag_boundary == True and  \

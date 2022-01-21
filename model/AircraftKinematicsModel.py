@@ -10,13 +10,12 @@ def print_np(x):
 from model import OptimalcontrolModel
 
 
-class Landing2D(OptimalcontrolModel):
+class AircraftKinematics(OptimalcontrolModel):
     def __init__(self,name,ix,iu,delT,linearization="numeric_central"):
         super().__init__(name,ix,iu,delT,linearization)
-        self.m = 2
-        self.I = 1e-2
-        self.r_t = 1e-2
-        self.g = 1
+        self.m = 288938
+        # self.m = 1
+
         
     def forward(self,x,u,idx=None,discrete=True):
         xdim = np.ndim(x)
@@ -32,22 +31,24 @@ class Landing2D(OptimalcontrolModel):
         # state & input
         rx = x[:,0]
         ry = x[:,1]
-        vx = x[:,2]
-        vy = x[:,3]
-        t = x[:,4]
-        w = x[:,5]
+        rz = x[:,2]
+        v = x[:,3] # speed
+        gamma = x[:,4] # path angle
+        psi = x[:,5] # velocity heading
         
-        gimbal = u[:,0]
-        thrust = u[:,1]
+        # gamma = u[:,0] 
+        gamma_dot = u[:,0] 
+        psi_dot = u[:,1] 
+        thrust = u[:,2] # thrust
         
         # output
         f = np.zeros_like(x)
-        f[:,0] = vx
-        f[:,1] = vy
-        f[:,2] = 1 / self.m * (-np.sin(t+gimbal)) * thrust
-        f[:,3] = 1 / self.m * (np.cos(t+gimbal)) * thrust - self.g
-        f[:,4] = w
-        f[:,5] = 1 / self.I * (-np.sin(gimbal)*thrust*self.r_t)
+        f[:,0] = v * np.cos(gamma) * np.cos(psi)
+        f[:,1] = v * np.cos(gamma) * np.sin(psi)
+        f[:,2] = v * np.sin(gamma)
+        f[:,3] = 1 / self.m * thrust
+        f[:,4] = gamma_dot
+        f[:,5] = psi_dot
 
         if discrete is True :
             return np.squeeze(x + f * self.delT)
