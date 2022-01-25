@@ -106,8 +106,8 @@ class Scvx:
         cnew = np.zeros(N+1)
 
         for i in range(N) :
-            # sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
-            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45')
+            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            # sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45')
             xnew[i+1] = sol.y[:,-1]
             cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
         cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
@@ -147,7 +147,10 @@ class Scvx:
             elif self.type_discretization == 'foh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.Bm[i]@(Su@u_cvx[i]+su)
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
-                                                                            +self.s[i]+self.z[i]+vc[i])
+                                                                            +self.s[i]+self.z[i]
+                                                                            +self.x_prop_n[i]-self.x_prop[i]
+                                                                            +vc[i] 
+                                                                            )
 
         # cost
         objective = []
@@ -248,10 +251,17 @@ class Scvx:
             if flgChange == True:
                 start = time.time()
                 if self.type_discretization == 'zoh' :
-                    self.A,self.B,self.s,self.z = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:])
+                    self.A,self.B,self.s,self.z,self.x_prop_n = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:])
+                    self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
+                                    self.B@np.expand_dims(self.u[0:N,:],2) + 
+                                    np.expand_dims(self.s+self.z,2))
                 elif self.type_discretization == 'foh' :
-                    self.A,self.Bm,self.Bp,self.s,self.z = self.model.diff_discrete_foh(self.x[0:N,:],self.u)
-
+                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u)
+                    self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
+                                    self.Bm@np.expand_dims(self.u[0:N,:],2) + 
+                                    self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 
+                                    np.expand_dims(self.s+self.z,2))
+                print("prop_n - prop",np.sum(self.x_prop_n-self.x_prop))
                 # remove small element
                 eps_machine = np.finfo(float).eps
                 self.A[np.abs(self.A) < eps_machine] = 0
@@ -262,7 +272,6 @@ class Scvx:
                 flgChange = False
                 pass
             time_derivs = (time.time() - start)
-
             # step2. cvxopt
             # try :
             prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew,error = self.cvxopt()

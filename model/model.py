@@ -182,7 +182,7 @@ class OptimalcontrolModel(object) :
         V0 = np.array([np.hstack((x[i],A0,B0,s0,z0)) for i in range(N)]).transpose()
         V0_repeat = V0.flatten(order='F')
 
-        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u,N),method='RK45')
+        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u,N),method='RK45',rtol=1e-6,atol=1e-10)
         # IPython.embed()
         idx_state = slice(0,ix)
         idx_A = slice(ix,ix+ix*ix)
@@ -193,12 +193,13 @@ class OptimalcontrolModel(object) :
         xnew = np.zeros((N+1,ix))
         xnew[0] = x[0]
         xnew[1:] = sol[:,:ix]
+        x_prop = sol[:,idx_state].reshape((-1,ix))
         A = sol[:,idx_A].reshape((-1,ix,ix))
         B = np.matmul(A,sol[:,idx_B].reshape((-1,ix,iu)))
         s = np.matmul(A,sol[:,idx_s].reshape((-1,ix,1))).squeeze()
         z = np.matmul(A,sol[:,idx_z].reshape((-1,ix,1))).squeeze()
 
-        return A,B,s,z
+        return A,B,s,z,x_prop
 
 
     def diff_discrete_foh(self,x,u) :
@@ -251,7 +252,8 @@ class OptimalcontrolModel(object) :
         V0 = np.array([np.hstack((x[i],A0,Bm0,Bp0,s0,z0)) for i in range(N)]).transpose()
         V0_repeat = V0.flatten(order='F')
 
-        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u[0:N],u[1:],N),method='RK45')
+        sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u[0:N],u[1:],N),method='RK45',rtol=1e-6,atol=1e-10)
+        # sol = solve_ivp(dvdt,(0,delT),V0_repeat,args=(u[0:N],u[1:],N),rtol=1e-6,atol=1e-10)
         # IPython.embed()
         idx_state = slice(0,ix)
         idx_A = slice(ix,ix+ix*ix)
@@ -263,10 +265,11 @@ class OptimalcontrolModel(object) :
         # xnew = np.zeros((N+1,ix))
         # xnew[0] = x[0]
         # xnew[1:] = sol[:,:ix]
+        x_prop = sol[:,idx_state].reshape((-1,ix))
         A = sol[:,idx_A].reshape((-1,ix,ix))
         Bm = np.matmul(A,sol[:,idx_Bm].reshape((-1,ix,iu)))
         Bp = np.matmul(A,sol[:,idx_Bp].reshape((-1,ix,iu)))
         s = np.matmul(A,sol[:,idx_s].reshape((-1,ix,1))).squeeze()
         z = np.matmul(A,sol[:,idx_z].reshape((-1,ix,1))).squeeze()
 
-        return A,Bm,Bp,s,z
+        return A,Bm,Bp,s,z,x_prop

@@ -58,7 +58,6 @@ class Aircraft3dof(OptimalcontrolModel):
             T3 = -131.21 + 0.00299 * rz
             p3 = 2.488 * np.power((T1+273.1)/216.6,-11.388)
             rho3 = p3 / (0.2869 * (T3 + 273.1))
-
             return rho1*flag_1 + rho2*flag_2 + rho3*flag_3
         rho = get_density(rz)
         # rho = 1.225
