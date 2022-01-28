@@ -86,6 +86,7 @@ class Scvx_tf_free(Scvx):
         if self.flag_update_scale is True :
             self.Scaling.update_scaling_from_traj(self.x,self.u)
         Sx,iSx,sx,Su,iSu,su = self.Scaling.get_scaling()
+        S_sigma = self.Scaling.S_sigma
 
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
@@ -106,13 +107,13 @@ class Scvx_tf_free(Scvx):
         for i in range(0,N) :
             if self.type_discretization == 'zoh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)
-                                                                            +sigma*self.s[i]
+                                                                            +sigma*S_sigma*self.s[i]
                                                                             +self.z[i]
                                                                             +vc[i])
             elif self.type_discretization == 'foh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.Bm[i]@(Su@u_cvx[i]+su)
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
-                                                                            +sigma * self.s[i]
+                                                                            +sigma*S_sigma*self.s[i]
                                                                             +self.z[i]
                                                                             +self.x_prop_n[i]-self.x_prop[i]
                                                                             +vc[i] 
@@ -122,7 +123,7 @@ class Scvx_tf_free(Scvx):
         objective = []
         objective_vc = []
         objective_tr = []
-        objective.append(self.w_c * self.cost.estimate_cost_cvx(sigma))
+        objective.append(self.w_c * self.cost.estimate_cost_cvx(sigma*S_sigma))
         for i in range(0,N+1) :
             if i < N :
                 objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
@@ -155,6 +156,7 @@ class Scvx_tf_free(Scvx):
             for i in range(N+1) :
                 x_bar[i] = Sx@x_cvx[i].value + sx
                 u_bar[i] = Su@u_cvx[i].value + su
+            sigma_bar = sigma.value * S_sigma
         except ValueError :
             print("FAIL: ValueError")
             error = True
@@ -165,7 +167,7 @@ class Scvx_tf_free(Scvx):
         #                                                         np.max(x_cvx.value),
         #                                                         np.min(u_cvx.value),
         #                                                         np.max(u_cvx.value)))
-        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,sigma.value,vc.value,error
+        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,sigma_bar,vc.value,error
                    
         
     def run(self,x0,u0,xi,xf,u_const=None):
@@ -273,7 +275,7 @@ class Scvx_tf_free(Scvx):
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
-                print("iteration   total_cost        cost        ||vc||     ||tr||       reduction   expected    w_tr        bounary")
+                print("iteration   total_cost        cost        ||vc||     ||tr||       reduction   w_tr        bounary")
             # accept changes
             self.x = self.xbar
             self.u = self.ubar

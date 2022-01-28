@@ -8,9 +8,10 @@ def print_np(x):
     # print ("Values are: \n%s" % (x))
 
 class TrajectoryScaling(object):
-    def __init__(self,x_min=None,x_max=None,u_min=None,u_max=None) :
+    def __init__(self,x_min=None,x_max=None,u_min=None,u_max=None,tf=None) :
         if x_min is not None : 
             self.Sx,self.iSx,self.sx,self.Su,self.iSu,self.su = self.compute_scaling(x_min,x_max,u_min,u_max)
+            self.S_sigma=tf
 
     def get_scaling(self) :
         return self.Sx,self.iSx,self.sx,self.Su,self.iSu,self.su
