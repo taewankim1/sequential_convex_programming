@@ -11,8 +11,8 @@ from model import OptimalcontrolModel
 
 
 class Aircraft3dof(OptimalcontrolModel):
-    def __init__(self,name,ix,iu,delT,linearization="numeric_central"):
-        super().__init__(name,ix,iu,delT,linearization)
+    def __init__(self,name,ix,iu,linearization="numeric_central"):
+        super().__init__(name,ix,iu,linearization)
         self.m = 288938
         self.g = 9.81
         self.Sw = 510.97

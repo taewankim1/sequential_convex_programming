@@ -14,10 +14,11 @@ def print_np(x):
 import cost
 import model
 import IPython
+from Scvx import Scvx
 
 from Scaling import TrajectoryScaling
 
-class Scvx:
+class Scvx_tf_free(Scvx):
     def __init__(self,name,horizon,tf,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
                         w_c=1,w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3,
                         flag_policyopt=False,verbosity=True):
@@ -50,45 +51,6 @@ class Scvx:
         self.flag_policyopt = flag_policyopt
         self.initialize()
 
-    def initialize(self) :
-        
-        self.dV = np.zeros((1,2))
-        self.x0 = np.zeros(self.model.ix)
-        self.x = np.zeros((self.N+1,self.model.ix))
-        self.u = np.ones((self.N+1,self.model.iu))
-        self.xbar = np.zeros((self.N+1,self.model.ix))
-        self.ubar = np.ones((self.N+1,self.model.iu))
-        self.vc = np.ones((self.N,self.model.ix)) * 1e-1
-        self.tr = np.ones((self.N+1))
-
-        self.xnew = np.zeros((self.N+1,self.model.ix))
-        self.unew = np.zeros((self.N+1,self.model.iu))
-        self.vcnew = np.zeros((self.N,self.model.ix))
-        self.Alpha = np.power(10,np.linspace(0,-3,11))
-
-        self.A = np.zeros((self.N,self.model.ix,self.model.ix))
-        self.B = np.zeros((self.N,self.model.ix,self.model.iu))  
-        self.Bm = np.zeros((self.N,self.model.ix,self.model.iu))  
-        self.Bp = np.zeros((self.N,self.model.ix,self.model.iu))  
-        self.s = np.zeros((self.N,self.model.ix))
-        self.z = np.zeros((self.N,self.model.ix))
-
-        self.c = 0
-        self.cvc = 0
-        self.ctr = 0
-        self.cnew = 0
-        self.cvcnew = 0
-        self.ctrnew = 0
-
-        self.cx = np.zeros((self.N+1,self.model.ix))
-        self.cu = np.zeros((self.N,self.model.iu))
-        self.cxx = np.zeros((self.N+1,self.model.ix,self.model.ix))
-        self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
-        self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
-
-    def get_model(self) :
-        return self.A,self.B,self.s,self.z,self.vc
-
     def forward_full(self,x0,u) :
         N = self.N
         ix = self.model.ix
@@ -105,15 +67,13 @@ class Scvx:
 
         xnew = np.zeros((N+1,ix))
         xnew[0] = x0
-        cnew = np.zeros(N+1)
 
         for i in range(N) :
             sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
-            cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
-        cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
 
-        return xnew,u,cnew
+        return xnew,u
+
 
     def cvxopt(self):
         # TODO - we can get rid of most of loops here
@@ -130,6 +90,7 @@ class Scvx:
         x_cvx = cvx.Variable((N+1,ix))
         u_cvx = cvx.Variable((N+1,iu))
         vc = cvx.Variable((N,ix))
+        sigma = cvx.Variable(nonneg=True)
 
         # initial & final boundary condition
         constraints = []
@@ -145,15 +106,15 @@ class Scvx:
         for i in range(0,N) :
             if self.type_discretization == 'zoh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)
-                                                                            +self.tf*self.s[i]
+                                                                            +sigma*self.s[i]
                                                                             +self.z[i]
                                                                             +vc[i])
             elif self.type_discretization == 'foh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.Bm[i]@(Su@u_cvx[i]+su)
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
-                                                                            +self.tf * self.s[i]
+                                                                            +sigma * self.s[i]
                                                                             +self.z[i]
-                                                                            # +self.x_prop_n[i]-self.x_prop[i]
+                                                                            +self.x_prop_n[i]-self.x_prop[i]
                                                                             +vc[i] 
                                                                             )
 
@@ -161,11 +122,10 @@ class Scvx:
         objective = []
         objective_vc = []
         objective_tr = []
+        objective.append(self.w_c * self.cost.estimate_cost_cvx(sigma))
         for i in range(0,N+1) :
             if i < N :
                 objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-            objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[i]+
-                                    sx,Su@u_cvx[i]+su,i))
             if self.flag_policyopt is True :
                 objective_tr.append( self.w_tr * (cvx.quad_form(u_cvx[i]-iSu@(self.u_const[i]-su),np.eye(iu))) )
             else :
@@ -205,7 +165,7 @@ class Scvx:
         #                                                         np.max(x_cvx.value),
         #                                                         np.min(u_cvx.value),
         #                                                         np.max(u_cvx.value)))
-        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,vc.value,error
+        return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,sigma.value,vc.value,error
                    
         
     def run(self,x0,u0,xi,xf,u_const=None):
@@ -241,8 +201,7 @@ class Scvx:
         stop = False
 
         self.x = self.x0
-        self.c = np.sum(self.cost.estimate_cost(self.x[:N,:],self.u[:N]))
-        self.c += self.cost.estimate_final_cost(self.x[N,:],self.u[N,:])
+        self.c = self.tf
         self.cvc = 0
         self.ctr = 0
 
@@ -262,6 +221,7 @@ class Scvx:
                                     np.expand_dims(self.tf*self.s+self.z,2))
                 elif self.type_discretization == 'foh' :
                     self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
+                    # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_test(self.x[0:N,:],self.u,1/self.N,self.tf)
                     self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
                                     self.Bm@np.expand_dims(self.u[0:N,:],2) + 
                                     self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 
@@ -279,7 +239,7 @@ class Scvx:
             time_derivs = (time.time() - start)
             # step2. cvxopt
             # try :
-            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew,error = self.cvxopt()
+            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.sigma,self.vcnew,error = self.cvxopt()
             if error == True :
                 total_num_iter = 1e5
                 break
@@ -289,10 +249,8 @@ class Scvx:
             if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
                 flag_cvx = True
                 start = time.time()
-                self.xnew,self.unew,self.cnew = self.forward_full(self.x0[0,:],self.ubar)
-                self.cnew = np.sum(self.cnew)
+                self.xnew,self.unew = self.forward_full(self.x0[0,:],self.ubar)
 
-                dcost = self.c + self.cvc + self.ctr - self.cnew - l_vc - l_tr
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
                 bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
@@ -309,7 +267,6 @@ class Scvx:
             else :
                 print("CVXOPT Failed: should not occur")
                 total_num_iter = 1e5
-                dcost = 0
                 expected = 0
                 break
 
@@ -320,6 +277,8 @@ class Scvx:
             # accept changes
             self.x = self.xbar
             self.u = self.ubar
+            self.tf = self.sigma
+            self.delT = self.tf/self.N
             self.vc = self.vcnew
             self.c = l 
             self.cvc = l_vc 
@@ -327,9 +286,9 @@ class Scvx:
             flgChange = True
 
             if self.verbosity == True:
-                print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
+                print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
                                                                                     self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
-                                                                                    dcost,expected,self.w_tr,flag_boundary,bc_error_norm))
+                                                                                    expected,self.w_tr,flag_boundary,bc_error_norm))
             if flag_boundary == True and  \
                             self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
                 if self.verbosity == True:
@@ -340,7 +299,7 @@ class Scvx:
                 print("NOT ENOUGH : reached to max iteration")
                 total_num_iter = iteration+1
 
-        return self.xnew,self.unew,self.xbar,self.ubar,total_num_iter,flag_boundary,l,l_vc,l_tr
+        return self.xnew,self.unew,self.xbar,self.ubar,self.sigma,total_num_iter,flag_boundary,l,l_vc,l_tr
         
 
 
