@@ -18,14 +18,17 @@ def print_np(x):
 
 
 class OptimalcontrolModel(object) :
-    def __init__(self,name,ix,iu,delT,linearization) :
+    def __init__(self,name,ix,iu,linearization) :
         self.name = name
         self.ix = ix
         self.iu = iu
-        self.delT = delT
         self.type_linearization = linearization
 
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None):
+        print("this is in parent class")
+        pass
+
+    def forward_discrete(self,x,u,idx=None):
         print("this is in parent class")
         pass
 
@@ -78,8 +81,8 @@ class OptimalcontrolModel(object) :
         u_aug_p = np.reshape( np.transpose(u_aug_p,(0,2,1)), (N*(iu+ix),iu))
 
         # numerical difference
-        f_change_m = self.forward(x_aug_m,u_aug_m,0,discrete=discrete)
-        f_change_p = self.forward(x_aug_p,u_aug_p,0,discrete=discrete)
+        f_change_m = self.forward(x_aug_m,u_aug_m,0)
+        f_change_p = self.forward(x_aug_p,u_aug_p,0)
         f_change_m = np.reshape(f_change_m,(N,ix+iu,ix))
         f_change_p = np.reshape(f_change_p,(N,ix+iu,ix))
         f_diff = (f_change_p - f_change_m) / (2*h)
@@ -125,8 +128,8 @@ class OptimalcontrolModel(object) :
         u_aug = np.reshape( np.transpose(u_aug,(0,2,1)), (N*(iu+ix),iu))
 
         # numerical difference
-        f_nominal = self.forward(x,u,0,discrete=discrete) 
-        f_change = self.forward(x_aug,u_aug,0,discrete=discrete)
+        f_nominal = self.forward(x,u,0) 
+        f_change = self.forward(x_aug,u_aug,0)
         # print_np(f_change)
         f_change = np.reshape(f_change,(N,ix+iu,ix))
         # print_np(f_nominal)
@@ -139,8 +142,8 @@ class OptimalcontrolModel(object) :
         
         return np.squeeze(fx), np.squeeze(fu)
 
-    def diff_discrete_zoh(self,x,u) :
-        delT = self.delT
+    def diff_discrete_zoh(self,x,u,delT,total_time) :
+        # delT = self.delT
         ix = self.ix
         iu = self.iu
 
@@ -159,19 +162,20 @@ class OptimalcontrolModel(object) :
             Phi = V[ix:ix*ix + ix]
             Phi = Phi.transpose().reshape((length,ix,ix))
             Phi_inv = np.linalg.inv(Phi)
-            f = self.forward(x,u,discrete=False)
+            f = self.forward(x,u)
             if self.type_linearization == "numeric_central" :
-                A,B = self.diff_numeric_central(x,u,discrete=False)
+                A,B = self.diff_numeric_central(x,u)
             elif self.type_linearization == "numeric_forward" :
-                A,B = self.diff_numeric(x,u,discrete=False)
+                A,B = self.diff_numeric(x,u)
             elif self.type_linearization == "analytic" :
-                A,B = self.diff(x,u,discrete=False)
+                A,B = self.diff(x,u)
+            A,B = total_time*A,total_time*B
             # IPython.embed()
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
             dbdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose()
             dsdt = np.squeeze(np.matmul(Phi_inv,np.expand_dims(f,2))).transpose()
             dzdt = np.squeeze(np.matmul(Phi_inv,-np.matmul(A,np.expand_dims(x,2)) - np.matmul(B,np.expand_dims(u,2)))).transpose()
-            dv = np.vstack((f.transpose(),dpdt,dbdt,dsdt,dzdt))
+            dv = np.vstack((total_time*f.transpose(),dpdt,dbdt,dsdt,dzdt))
             # IPython.embed()
             return dv.flatten(order='F')
         
@@ -202,8 +206,8 @@ class OptimalcontrolModel(object) :
         return A,B,s,z,x_prop
 
 
-    def diff_discrete_foh(self,x,u) :
-        delT = self.delT
+    def diff_discrete_foh(self,x,u,delT,total_time) :
+        # delT = self.delT
         ix = self.ix
         iu = self.iu
 
@@ -228,19 +232,20 @@ class OptimalcontrolModel(object) :
             Phi = V[ix:ix*ix + ix]
             Phi = Phi.transpose().reshape((length,ix,ix))
             Phi_inv = np.linalg.inv(Phi)
-            f = self.forward(x,u,discrete=False)
+            f = self.forward(x,u)
             if self.type_linearization == "numeric_central" :
-                A,B = self.diff_numeric_central(x,u,discrete=False)
+                A,B = self.diff_numeric_central(x,u)
             elif self.type_linearization == "numeric_forward" :
-                A,B = self.diff_numeric(x,u,discrete=False)
+                A,B = self.diff_numeric(x,u)
             elif self.type_linearization == "analytic" :
-                A,B = self.diff(x,u,discrete=False)
+                A,B = self.diff(x,u)
+            A,B = total_time*A,total_time*B
             dpdt = np.matmul(A,Phi).reshape((length,ix*ix)).transpose()
             dbmdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * alpha
             dbpdt = np.matmul(Phi_inv,B).reshape((length,ix*iu)).transpose() * beta
             dsdt = np.squeeze(np.matmul(Phi_inv,np.expand_dims(f,2))).transpose()
             dzdt = np.squeeze(np.matmul(Phi_inv,-np.matmul(A,np.expand_dims(x,2)) - np.matmul(B,np.expand_dims(u,2)))).transpose()
-            dv = np.vstack((f.transpose(),dpdt,dbmdt,dbpdt,dsdt,dzdt))
+            dv = np.vstack((total_time*f.transpose(),dpdt,dbmdt,dbpdt,dsdt,dzdt))
             # IPython.embed()
             return dv.flatten(order='F')
         

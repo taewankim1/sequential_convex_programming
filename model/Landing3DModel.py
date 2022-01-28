@@ -108,7 +108,7 @@ class Landing3D(OptimalcontrolModel):
 
         return skew
 
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None):
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1
@@ -175,13 +175,10 @@ class Landing3D(OptimalcontrolModel):
         f[:,12] = (-J_x*wx*wz + J_z*wx*wz - self.r_t*ux)/J_y
         f[:,13] = (J_x*wx*wy - J_y*wx*wy)/J_z
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
 
-    def diff(self,x,u,discrete=True) :
-        assert discrete == False
+        return f
+
+    def diff(self,x,u) :
         # state & input size
         ix = self.ix
         iu = self.iu

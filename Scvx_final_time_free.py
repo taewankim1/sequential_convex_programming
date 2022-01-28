@@ -14,11 +14,11 @@ def print_np(x):
 import cost
 import model
 import IPython
-
+from Scvx import Scvx
 from Scaling import TrajectoryScaling
 
-class Scvx:
-    def __init__(self,name,horizon,tf,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
+class Scvx_final_time_free(Scvx):
+    def __init__(self,name,horizon,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
                         w_c=1,w_vc=1e4,w_tr=1e-3,tol_vc=1e-10,tol_tr=1e-3,tol_bc=1e-3,
                         flag_policyopt=False,verbosity=True):
         self.name = name
@@ -26,8 +26,6 @@ class Scvx:
         self.const = Const
         self.cost = Cost
         self.N = horizon
-        self.tf = tf
-        self.dtau = 1 / self.N
         if Scaling is None :
             self.Scaling = TrajectoryScaling() 
             self.flag_update_scale = True
@@ -98,17 +96,18 @@ class Scvx:
             if self.type_discretization == "zoh" :
                 u = um
             elif self.type_discretization == "foh" :
-                alpha = (self.dtau*self.tf - t) / self.dtau*self.tf
-                beta = t / self.dtau*self.tf
+                alpha = (self.model.delT - t) / self.model.delT
+                beta = t / self.model.delT
                 u = alpha * um + beta * up
-            return np.squeeze(self.model.forward(x,u))
+            return np.squeeze(self.model.forward(x,u,discrete=False))
 
         xnew = np.zeros((N+1,ix))
         xnew[0] = x0
         cnew = np.zeros(N+1)
 
         for i in range(N) :
-            sol = solve_ivp(dfdt,(0,self.dtau*self.tf),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            # sol = solve_ivp(dfdt,(0,self.model.delT),xnew[i],args=(u[i],u[i+1]),method='RK45')
             xnew[i+1] = sol.y[:,-1]
             cnew[i] = self.cost.estimate_cost(xnew[i],u[i])
         cnew[N] = self.cost.estimate_final_cost(xnew[N],u[N])
@@ -144,11 +143,11 @@ class Scvx:
         # model constraints
         for i in range(0,N) :
             if self.type_discretization == 'zoh' :
-                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)+self.s[i] * self.tf+self.z[i]+vc[i])
+                constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)+self.s[i]+self.z[i]+vc[i])
             elif self.type_discretization == 'foh' :
                 constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.Bm[i]@(Su@u_cvx[i]+su)
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
-                                                                            +self.s[i]*self.tf+self.z[i]
+                                                                            +self.s[i]+self.z[i]
                                                                             +self.x_prop_n[i]-self.x_prop[i]
                                                                             +vc[i] 
                                                                             )
@@ -252,12 +251,12 @@ class Scvx:
             if flgChange == True:
                 start = time.time()
                 if self.type_discretization == 'zoh' :
-                    self.A,self.B,self.s,self.z,self.x_prop_n = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:],self.dtau,self.tf)
+                    self.A,self.B,self.s,self.z,self.x_prop_n = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:])
                     self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
                                     self.B@np.expand_dims(self.u[0:N,:],2) + 
                                     np.expand_dims(self.s+self.z,2))
                 elif self.type_discretization == 'foh' :
-                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.dtau,self.tf)
+                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u)
                     self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
                                     self.Bm@np.expand_dims(self.u[0:N,:],2) + 
                                     self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 

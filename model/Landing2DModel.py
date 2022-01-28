@@ -18,7 +18,7 @@ class Landing2D(OptimalcontrolModel):
         self.r_t = 1e-2
         self.g = 1
         
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None):
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1
@@ -49,10 +49,7 @@ class Landing2D(OptimalcontrolModel):
         f[:,4] = w
         f[:,5] = 1 / self.I * (-np.sin(gimbal)*thrust*self.r_t)
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
+        return f
     
     # def diff(self,x,u):
 

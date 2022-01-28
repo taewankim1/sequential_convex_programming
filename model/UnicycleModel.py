@@ -19,7 +19,7 @@ class unicycle(OptimalcontrolModel):
     def __init__(self,name,ix,iu,delT,linearzation):
         super().__init__(name,ix,iu,delT,linearzation)
         
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None):
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1
@@ -44,10 +44,7 @@ class unicycle(OptimalcontrolModel):
         f[:,1] = v * np.sin(x3)
         f[:,2] = w
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
+        return f
     
     # def diff(self,x,u):
 

@@ -17,7 +17,7 @@ class AircraftKinematics(OptimalcontrolModel):
         # self.m = 1
 
         
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None,discrete=False):
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1
@@ -50,10 +50,8 @@ class AircraftKinematics(OptimalcontrolModel):
         f[:,4] = gamma_dot
         f[:,5] = psi_dot
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
+
+        return f
     
     # def diff(self,x,u):
 

@@ -11,15 +11,15 @@ from model import OptimalcontrolModel
 
 
 class Aircraft3dof(OptimalcontrolModel):
-    def __init__(self,name,ix,iu,delT,linearization="numeric_central"):
-        super().__init__(name,ix,iu,delT,linearization)
+    def __init__(self,name,ix,iu,linearization="numeric_central"):
+        super().__init__(name,ix,iu,linearization)
         self.m = 288938
         self.g = 9.81
         self.Sw = 510.97
         self.CD0 = 0.022
         self.K = 0.045
         
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None,discrete=False):
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
             N = 1
@@ -75,10 +75,7 @@ class Aircraft3dof(OptimalcontrolModel):
         f[:,4] = 1 /(self.m * v) * (L * np.cos(phi) - self.m * self.g * np.cos(gamma)) 
         f[:,5] = - L * np.sin(phi) / (self.m * v * np.cos(gamma))
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
+        return f
     
     # def diff(self,x,u):
 

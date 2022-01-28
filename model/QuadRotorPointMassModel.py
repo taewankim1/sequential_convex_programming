@@ -20,7 +20,7 @@ class quadrotorpm(OptimalcontrolModel):
         super().__init__(name,ix,iu,delT,linearization)
         self.g = 9.81
         
-    def forward(self,x,u,idx=None,discrete=True):
+    def forward(self,x,u,idx=None):
         
         xdim = np.ndim(x)
         if xdim == 1: # 1 step state & input
@@ -53,10 +53,7 @@ class quadrotorpm(OptimalcontrolModel):
         f[:,4] = ay
         f[:,5] = az-self.g
 
-        if discrete is True :
-            return np.squeeze(x + f * self.delT)
-        else :
-            return f
+        return f
 
     def diff(self,x,u,idx=None,discrete=False) :
         # state & input size
