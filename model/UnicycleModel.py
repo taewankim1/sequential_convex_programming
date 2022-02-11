@@ -16,8 +16,8 @@ def print_np(x):
 from model import OptimalcontrolModel
 
 class unicycle(OptimalcontrolModel):
-    def __init__(self,name,ix,iu,delT,linearzation):
-        super().__init__(name,ix,iu,delT,linearzation)
+    def __init__(self,name,ix,iu,linearzation):
+        super().__init__(name,ix,iu,linearzation)
         
     def forward(self,x,u,idx=None,discrete=True):
         xdim = np.ndim(x)
