@@ -47,7 +47,7 @@ class SCP_buffer_deviation(Scvx):
         self.flag_policyopt = flag_policyopt
         self.initialize()
 
-    def forward_full(self,x0,u,T) :
+    def forward_full(self,x0,u,T,iteration) :
         N = self.N
         ix = self.model.ix
         iu = self.model.iu
@@ -66,7 +66,10 @@ class SCP_buffer_deviation(Scvx):
 
         for i in range(N) :
             # sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
-            sol = solve_ivp(dfdt,(0,T[i]),xnew[i],args=(u[i],u[i+1],T[i]))
+            if iteration < 20 :
+                sol = solve_ivp(dfdt,(0,T[i]),xnew[i],args=(u[i],u[i+1],T[i]))
+            else :
+                sol = solve_ivp(dfdt,(0,T[i]),xnew[i],args=(u[i],u[i+1],T[i]),rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
 
         return xnew,np.copy(u)
@@ -84,10 +87,12 @@ class SCP_buffer_deviation(Scvx):
             self.Scaling.update_scaling_from_traj(self.x,self.u)
         Sx,iSx,sx,Su,iSu,su = self.Scaling.get_scaling()
         S_sigma = self.Scaling.S_sigma
+
         # cvx variabels
         dx_cvx = cvx.Variable((N+1,ix))
         du_cvx = cvx.Variable((N+1,iu))
         dT_cvx = cvx.Variable(N)
+
         # scaling
         dx,du,dT = [],[],[]
         for i in range(N+1) :
@@ -97,7 +102,6 @@ class SCP_buffer_deviation(Scvx):
                 dT.append(S_sigma*dT_cvx[i])
 
         bf = cvx.Variable((N+1,ih))
-        # vc = cvx.Variable((N,ix))
         bf_b = cvx.Variable((2,ix))
 
         # initial & final boundary condition
@@ -115,28 +119,16 @@ class SCP_buffer_deviation(Scvx):
 
         # model constraints
         for i in range(0,N) :
-            # if self.type_discretization == 'zoh' :
-            #     constraints.append(Sx@x_cvx[i+1]+sx == self.A[i]@(Sx@x_cvx[i]+sx)+self.B[i]@(Su@u_cvx[i]+su)
-            #                                                                 +sigma*S_sigma*self.s[i]
-            #                                                                 +self.z[i]
-            #                                                                 # +vc[i]
-            #                                                                 )
-            # elif self.type_discretization == 'foh' :
             constraints.append(dx[i+1] == self.A[i]@dx[i]+self.Bm[i]@du[i]
                                             +self.Bp[i]@du[i+1]
                                             +self.s[i]*dT[i]
                                             +x_prop[i]-x[i+1]
-                                            # +vc[i]
                                             )
-            constraints.append(dT[i]+T[i]>=0)
-            constraints.append(dT[i] <= 20/N)
-            constraints.append(dT[i] >= -20/N)
+            constraints.append(dT[i]+T[i]>=300/N)
+            constraints.append(dT[i]+T[i]<=800/N)
+            constraints.append(dT[i]<= 100/N)
+            constraints.append(dT[i]>= -100/N)
 
-            # constraints.append(  cvx.quad_form(dx_cvx[i],np.eye(ix))
-            #                      + cvx.quad_form(du_cvx[i],np.eye(iu)) <= 80 / N  )
-        # constraint on time
-        # constraints.append(cvx.sum(dT) <= 20)
-        # constraints.append(cvx.sum(dT) >= -20)
 
         # cost
         objective = []
@@ -145,18 +137,13 @@ class SCP_buffer_deviation(Scvx):
 
         # final time TODO : should change it to general case
         objective.append(self.w_c * (cvx.sum(dT)+np.sum(T)))
-        # objective.append(self.w_c * (np.sum(T)))
         for i in range(0,N+1) :
-            objective_buffer.append( self.w_bf * (cvx.quad_form(bf[i],np.eye(ih))))
-            # if i < N :
-            #     objective_buffer.append( self.w_bf * (cvx.norm(vc[i],1)))
-            objective_tr.append( self.w_tr * (cvx.quad_form(dx_cvx[i],np.eye(ix))
-                                 + cvx.quad_form(du_cvx[i],np.eye(iu))) )
-            # objective_tr.append( self.w_tr * (cvx.quad_form(du_cvx[i],np.eye(iu))) )
+            objective_buffer.append(self.w_bf*(cvx.quad_form(bf[i],np.eye(ih))))
+            objective_tr.append(self.w_tr*(cvx.quad_form(dx_cvx[i],np.eye(ix))+
+            cvx.quad_form(du_cvx[i],np.diag([1,1,1]))) )
 
-        objective_buffer.append( self.w_bf_b * (cvx.quad_form(bf_b[0],np.eye(ix))))
-        objective_buffer.append( self.w_bf_b * (cvx.quad_form(bf_b[1],np.eye(ix))))
-        # objective_tr.append(self.w_tr * cvx.quad_form(dT_cvx,np.eye(N)))
+        objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[0],np.eye(ix))))
+        objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[1],np.eye(ix))))
 
         l = cvx.sum(objective)
         l_bf = cvx.sum(objective_buffer)
@@ -168,8 +155,9 @@ class SCP_buffer_deviation(Scvx):
         error = False
         # prob.solve(verbose=False,solver=cvx.MOSEK)
         # prob.solve(verbose=False,solver=cvx.CPLEX)
-        prob.solve(verbose=False,solver=cvx.OSQP,warm_start=True,eps_abs=1e-3,eps_rel=1e-3)
+        # prob.solve(verbose=False,solver=cvx.OSQP)#,eps_abs=1e-3,eps_rel=1e-3)
         # prob.solve(verbose=False,solver=cvx.ECOS)
+        prob.solve(verbose=False,solver=cvx.GUROBI)
 
         if prob.status == cvx.OPTIMAL_INACCURATE :
             print("WARNING: inaccurate solution")
@@ -268,7 +256,7 @@ class SCP_buffer_deviation(Scvx):
             if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
                 flag_cvx = True
                 start = time.time()
-                self.xnew,self.unew = self.forward_full(self.x0[0,:],self.ubar,self.Tbar)
+                self.xnew,self.unew = self.forward_full(self.x0[0,:],self.ubar,self.Tbar,iteration)
 
                 expected = self.c + self.cbf + self.ctr - l - l_bf - l_tr
                 # check the boundary condtion
@@ -306,7 +294,7 @@ class SCP_buffer_deviation(Scvx):
             u_traj.append(self.u)
 
             if self.verbosity == True:
-                print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cbf+self.ctr,
+                print("%-12d%-18.3f%-12.5f%-12.3g%-12.3g%-12.3g%-12.6f%-1d(%2.3g)" % ( iteration+1,self.c+self.cbf+self.ctr,
                                                                                     self.c,self.cbf/self.w_bf,self.ctr/self.w_tr,
                                                                                     expected,self.w_tr,flag_boundary,bc_error_norm))
             if flag_boundary == True and  \

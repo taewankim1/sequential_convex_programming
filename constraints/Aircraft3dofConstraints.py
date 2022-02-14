@@ -28,7 +28,7 @@ class Aircraft3dof(OptimalcontrolConstraints):
         self.gamma_max = np.deg2rad(20)  * 0
         self.scl_v = 1
         self.scl_f = 1
-        self.ih = 10
+        self.ih = 11
 
     def set_scale(self,scl_v,scl_f) :
         self.scl_v = scl_v
@@ -64,6 +64,7 @@ class Aircraft3dof(OptimalcontrolConstraints):
         h.append(v<=v_max)
         h.append(gamma>=self.gamma_min)
         h.append(gamma<=self.gamma_max)
+        h.append(rz>=0)
         return h
 
     def forward_buffer(self,x,u,bf):
@@ -90,7 +91,7 @@ class Aircraft3dof(OptimalcontrolConstraints):
         h.append(v+bf[7]<=self.v_max)
         h.append(gamma>=bf[8]+self.gamma_min)
         h.append(gamma+bf[9]<=self.gamma_max)
-        # h.append(rz >= bf[10])
+        h.append(rz >= bf[10])
         return h
 
     def bc_final(self,x_cvx,xf):

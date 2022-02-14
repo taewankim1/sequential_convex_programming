@@ -51,7 +51,7 @@ class Scvx_tf_free(Scvx):
         self.flag_policyopt = flag_policyopt
         self.initialize()
 
-    def forward_full(self,x0,u) :
+    def forward_full(self,x0,u,iteration) :
         N = self.N
         ix = self.model.ix
         iu = self.model.iu
@@ -69,8 +69,10 @@ class Scvx_tf_free(Scvx):
         xnew[0] = x0
 
         for i in range(N) :
-            # sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
-            sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]))
+            if iteration < 20 :
+                sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]))
+            else :
+                sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
 
         return xnew,np.copy(u)
@@ -132,7 +134,8 @@ class Scvx_tf_free(Scvx):
                 # objective_rate.append(w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.diag([1,0,0])))
             # objective_tr.append( self.w_tr * (cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu))) )
             objective_tr.append( self.w_tr * (cvx.quad_form(x_cvx[i] -
-                                    iSx@(self.x[i]-sx),np.eye(ix)) + cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu))) )
+                                    iSx@(self.x[i]-sx),np.eye(ix)) +
+                                     cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.diag([1,1,1]))) )
         objective_tr.append(1 * (sigma-self.tf/S_sigma)**2)
 
         l = cvx.sum(objective)
@@ -144,9 +147,10 @@ class Scvx_tf_free(Scvx):
         prob = cvx.Problem(cvx.Minimize(l_all), constraints)
 
         error = False
-        prob.solve(verbose=True,solver=cvx.MOSEK)
+        # prob.solve(verbose=False,solver=cvx.MOSEK)
         # prob.solve(verbose=False,solver=cvx.CPLEX)
-        # prob.solve(verbose=False,solver=cvx.ECOS)
+        # prob.solve(verbose=False,solver=cvx.GUROBI)
+        prob.solve(verbose=False,solver=cvx.ECOS)
 
         if prob.status == cvx.OPTIMAL_INACCURATE :
             print("WARNING: inaccurate solution")
@@ -227,21 +231,9 @@ class Scvx_tf_free(Scvx):
                                     self.B@np.expand_dims(self.u[0:N,:],2) + 
                                     np.expand_dims(self.tf*self.s+self.z,2))
                 elif self.type_discretization == 'foh' :
-                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_serial(self.x[0:N,:],self.u,self.delT,self.tf)
+                    # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_serial(self.x[0:N,:],self.u,self.delT,self.tf)
                     # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_test(self.x[0:N,:],self.u,1/self.N,self.tf)
-                    # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
-                    # A_,Bm_,Bp_,s_,z_,x_prop_n_ = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
-                    # print("A",np.max(np.abs(self.A-A_)))
-                    # print("Bm",np.max(np.abs(self.Bm-Bm_)))
-                    # print("Bp",np.max(np.abs(self.Bp-Bp_)))
-                    # print("s",np.max(np.abs(self.s-s_)))
-                    # print("z",np.max(np.abs(self.z-z_)))
-                    # print("x_prop_n",np.max(np.abs(self.x_prop_n-x_prop_n_)))
-                    # self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
-                    #                 self.Bm@np.expand_dims(self.u[0:N,:],2) + 
-                    #                 self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 
-                    #                 np.expand_dims(self.tf*self.s+self.z,2))
-                # print("prop_n - prop",np.sum(self.x_prop_n-self.x_prop))
+                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
                 # remove small element
                 eps_machine = np.finfo(float).eps
                 self.A[np.abs(self.A) < eps_machine] = 0
@@ -264,7 +256,7 @@ class Scvx_tf_free(Scvx):
             if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
                 flag_cvx = True
                 start = time.time()
-                self.xnew,self.unew = self.forward_full(self.x0[0,:],self.ubar)
+                self.xnew,self.unew = self.forward_full(self.x0[0,:],self.ubar,iteration)
 
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
