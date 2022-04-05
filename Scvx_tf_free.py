@@ -63,13 +63,13 @@ class Scvx_tf_free(Scvx):
                 alpha = (self.delT - t) / self.delT
                 beta = t / self.delT
                 u = alpha * um + beta * up
-            return np.squeeze(self.model.forward(x,u,discrete=False))
+            return np.squeeze(self.model.forward(x,u))
 
         xnew = np.zeros((N+1,ix))
         xnew[0] = x0
 
         for i in range(N) :
-            if iteration < 20 :
+            if iteration < 10 :
                 sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]))
             else :
                 sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
@@ -94,11 +94,15 @@ class Scvx_tf_free(Scvx):
         u_cvx = cvx.Variable((N+1,iu))
         vc = cvx.Variable((N,ix))
         sigma = cvx.Variable(nonneg=True)
+        bf = cvx.Variable(1)
 
         # initial & final boundary condition
         constraints = []
         constraints.append(Sx@x_cvx[0]+sx  == self.xi)
-        constraints.append(Sx@x_cvx[-1]+sx  == self.xf)
+        constraints.append(Sx@x_cvx[-1]+sx == self.xf)
+        # constraints.append((Su@u_cvx[0]+su)[0]  == 0.7)
+        constraints.append((Su@u_cvx[0]+su)[1]  == 0)
+        constraints.append((Su@u_cvx[-1]+su)[1]  == 0)
 
         # state and input contraints
         for i in range(0,N+1) :
@@ -117,40 +121,46 @@ class Scvx_tf_free(Scvx):
                                                                             +self.Bp[i]@(Su@u_cvx[i+1]+su)
                                                                             +sigma*S_sigma*self.s[i]
                                                                             +self.z[i]
-                                                                            # +self.x_prop_n[i]-self.x_prop[i]
+                                                                            +self.x_prop_n[i]-self.x_prop[i]
                                                                             +vc[i] 
                                                                             )
+            # constraints.append
 
         # cost
-        w_rate = 1e4
+        # self.w_rate = 1e4
         objective = []
         objective_vc = []
         objective_tr = []
-        # objective_rate = []
+        objective_rate = []
         objective.append(self.w_c * self.cost.estimate_cost_cvx(sigma*S_sigma))
         for i in range(0,N+1) :
             if i < N :
                 objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-                # objective_rate.append(w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.diag([1,0,0])))
+                objective_rate.append(self.w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.diag([1,0.002,0])))
+                # objective_rate.append(self.w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.eye(iu)))
             # objective_tr.append( self.w_tr * (cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.eye(iu))) )
-            objective_tr.append( self.w_tr * (cvx.quad_form(x_cvx[i] -
-                                    iSx@(self.x[i]-sx),np.eye(ix)) +
-                                     cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.diag([1,1,1]))) )
-        objective_tr.append(1 * (sigma-self.tf/S_sigma)**2)
+            objective_tr.append( self.w_tr * (cvx.quad_form(x_cvx[i] - iSx@(self.x[i]-sx),np.eye(ix)) +
+                                     cvx.quad_form(u_cvx[i]-iSu@(self.u[i]-su),np.diag([1,1,1e-2]))) )
+        objective_tr.append(self.w_tr*(sigma-self.tf/S_sigma)**2)
+        # constraints.append( S_sigma * sigma - self.tf <= 100 )
+        # constraints.append( self.tf - S_sigma * sigma  <= 100 )
+        # objective_bf.append(self.w_vc*cvx.norm(bf,2))
 
         l = cvx.sum(objective)
         l_vc = cvx.sum(objective_vc)
         l_tr = cvx.sum(objective_tr)
-        # l_rate = cvx.sum(objective_rate)
+        # l_bf = cvx.sum(objective_bf)
+        l_rate = cvx.sum(objective_rate)
 
-        l_all = l + l_vc + l_tr
+        l_all = l + l_vc + l_tr + l_rate
         prob = cvx.Problem(cvx.Minimize(l_all), constraints)
 
         error = False
         # prob.solve(verbose=False,solver=cvx.MOSEK)
         # prob.solve(verbose=False,solver=cvx.CPLEX)
-        # prob.solve(verbose=False,solver=cvx.GUROBI)
-        prob.solve(verbose=False,solver=cvx.ECOS)
+        prob.solve(verbose=False,solver=cvx.GUROBI)
+        # prob.solve(verbose=False,solver=cvx.ECOS)
+        # prob.solve(verbose=False,solver=cvx.SCS)
 
         if prob.status == cvx.OPTIMAL_INACCURATE :
             print("WARNING: inaccurate solution")
@@ -174,23 +184,19 @@ class Scvx_tf_free(Scvx):
         #                                                         np.max(u_cvx.value)))
         # sigma_bar = self.tf
         return prob.status,l.value,l_vc.value,l_tr.value,x_bar,u_bar,sigma_bar,vc.value,error
-                   
-        
-    def run(self,x0,u0,xi,xf,u_const=None):
+
+    def run(self,x0,u0,xi,xf):
         # initial trajectory
         self.x0 = x0
 
         # save trajectory
         x_traj = []
         u_traj = []
+        T_traj = []
         
         # initial input
         self.u0 = u0
         self.u = u0
-        if u_const is None :
-            self.u_const = u0
-        else :
-            self.u_const = u_const
 
         # initial condition
         self.xi = xi
@@ -221,7 +227,9 @@ class Scvx_tf_free(Scvx):
         flgChange = True
         total_num_iter = 0
         flag_boundary = False
+        self.w_rate = 1e4
         for iteration in range(self.maxIter) :
+            # print("w_rate",self.w_rate)
             # differentiate dynamics and cost
             if flgChange == True:
                 start = time.time()
@@ -233,13 +241,30 @@ class Scvx_tf_free(Scvx):
                 elif self.type_discretization == 'foh' :
                     # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_serial(self.x[0:N,:],self.u,self.delT,self.tf)
                     # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_test(self.x[0:N,:],self.u,1/self.N,self.tf)
-                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
+                    # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
+                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh_test2(self.x[0:N,:],self.u,self.delT,self.tf)
+                    self.print_eigenvalue(self.A)
+
+
+                    # A_,Bm_,Bp_,s_,z_,x_prop_n_ = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
+                    # print("A",np.max(np.abs(self.A-A_)))
+                    # print("Bm",np.max(np.abs(self.Bm-Bm_)))
+                    # print("Bp",np.max(np.abs(self.Bp-Bp_)))
+                    # print("s",np.max(np.abs(self.s-s_)))
+                    # print("z",np.max(np.abs(self.z-z_)))
+                    # print("x_prop_n",np.max(np.abs(self.x_prop_n-x_prop_n_)))
+
+                    self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
+                                    self.Bm@np.expand_dims(self.u[0:N,:],2) + 
+                                    self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 
+                                    np.expand_dims(self.tf*self.s+self.z,2))
+                    # print("propagation error",np.max(np.abs(self.x_prop - self.x_prop_n)))
                 # remove small element
-                eps_machine = np.finfo(float).eps
-                self.A[np.abs(self.A) < eps_machine] = 0
-                self.B[np.abs(self.B) < eps_machine] = 0
-                self.Bm[np.abs(self.Bm) < eps_machine] = 0
-                self.Bp[np.abs(self.Bp) < eps_machine] = 0
+                # eps_machine = np.finfo(float).eps
+                # self.A[np.abs(self.A) < eps_machine] = 0
+                # self.B[np.abs(self.B) < eps_machine] = 0
+                # self.Bm[np.abs(self.Bm) < eps_machine] = 0
+                # self.Bp[np.abs(self.Bp) < eps_machine] = 0
 
                 flgChange = False
                 pass
@@ -247,6 +272,7 @@ class Scvx_tf_free(Scvx):
             # step2. cvxopt
             # try :
             prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.sigma,self.vcnew,error = self.cvxopt()
+            # print("multishooting error",np.max(np.abs(self.xbar[1:] - self.x_prop_n)))
             if error == True :
                 total_num_iter = 1e5
                 break
@@ -260,7 +286,8 @@ class Scvx_tf_free(Scvx):
 
                 expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
                 # check the boundary condtion
-                bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
+                bc_error_norm = np.max(np.abs(self.xnew-self.xbar))
+                # bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
 
                 if  bc_error_norm >= self.tol_bc :
                     # print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
@@ -293,6 +320,7 @@ class Scvx_tf_free(Scvx):
             flgChange = True
             x_traj.append(self.x)
             u_traj.append(self.u)
+            T_traj.append(self.tf)
 
             if self.verbosity == True:
                 print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.3f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
@@ -308,7 +336,7 @@ class Scvx_tf_free(Scvx):
                 print("NOT ENOUGH : reached to max iteration")
                 total_num_iter = iteration+1
 
-        return self.xnew,self.unew,self.xbar,self.ubar,self.sigma,total_num_iter,flag_boundary,l,l_vc,l_tr,x_traj,u_traj
+        return self.xnew,self.unew,self.xbar,self.ubar,self.sigma,total_num_iter,flag_boundary,l,l_vc,l_tr,x_traj,u_traj,T_traj
         
 
 

@@ -17,7 +17,7 @@ from Scaling import TrajectoryScaling
 
 class SCP_buffer_deviation(Scvx):
     def __init__(self,name,horizon,tf,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
-                        w_c=1,w_bf=1e4,w_bf_b=1e4,w_tr=1e-3,tol_bf=1e-10,tol_tr=1e-3,tol_bc=1e-3,
+                        w_c=1,w_bf=1e4,w_tr=1e-3,tol_bf=1e-10,tol_tr=1e-3,tol_bc=1e-3,
                         flag_policyopt=False,verbosity=True):
         self.name = name
         self.model = Model
@@ -36,7 +36,6 @@ class SCP_buffer_deviation(Scvx):
         self.verbosity = verbosity
         self.w_c = w_c
         self.w_bf = w_bf
-        self.w_bf_b = w_bf_b
         self.w_tr = w_tr
         self.tol_tr = tol_tr
         self.tol_bf = tol_bf
@@ -59,14 +58,14 @@ class SCP_buffer_deviation(Scvx):
                 alpha = (delT - t) / delT
                 beta = t / delT
                 u = alpha * um + beta * up
-            return np.squeeze(self.model.forward(x,u,discrete=False))
+            return np.squeeze(self.model.forward(x,u))
 
         xnew = np.zeros((N+1,ix))
         xnew[0] = x0
 
         for i in range(N) :
             # sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
-            if iteration < 20 :
+            if iteration < 10 :
                 sol = solve_ivp(dfdt,(0,T[i]),xnew[i],args=(u[i],u[i+1],T[i]))
             else :
                 sol = solve_ivp(dfdt,(0,T[i]),xnew[i],args=(u[i],u[i+1],T[i]),rtol=1e-6,atol=1e-10)
@@ -98,36 +97,41 @@ class SCP_buffer_deviation(Scvx):
         for i in range(N+1) :
             dx.append(Sx@dx_cvx[i]+sx)
             du.append(Su@du_cvx[i]+su)
+            # dx.append(dx_cvx[i])
+            # du.append(du_cvx[i])
             if i < N :
                 dT.append(S_sigma*dT_cvx[i])
 
-        bf = cvx.Variable((N+1,ih))
+        # bf = cvx.Variable((N+1,ih))
         bf_b = cvx.Variable((2,ix))
+        rho = cvx.Variable((N+1))
 
         # initial & final boundary condition
         constraints = []
         constraints.append(dx[0]+x[0]+bf_b[0]  == self.xi)
         constraints.append(dx[-1]+x[-1]+bf_b[-1]  == self.xf)
-        # constraints.append(dx[0]+x[0]  == self.xi)
-        # constraints.append(dx[-1]+x[-1]  == self.xf)
 
-        # state and input contraints
+
         for i in range(0,N+1) :
-            h = self.const.forward_buffer(x[i]+dx[i],u[i]+du[i],bf[i])
-            # h = self.const.forward(x[i]+dx[i],u[i]+du[i])
+            # state and input contraints
+            # h = self.const.forward_buffer(x[i]+dx[i],u[i]+du[i],bf[i])
+            h = self.const.forward(x[i]+dx[i],u[i]+du[i])
             constraints += h
+            if i < N :
+                # dynamics
+                constraints.append(dx[i+1] == self.A[i]@dx[i]+self.Bm[i]@du[i]
+                                                +self.Bp[i]@du[i+1]
+                                                +self.s[i]*dT[i]
+                                                +x_prop[i]-x[i+1]
+                                                )
+                # trust region
+                constraints.append(dT[i]+T[i]>=500/N)
+                constraints.append(dT[i]+T[i]<=800/N)
+                constraints.append(dT[i]<= 50/N)
+                constraints.append(dT[i]>= -50/N)
 
-        # model constraints
-        for i in range(0,N) :
-            constraints.append(dx[i+1] == self.A[i]@dx[i]+self.Bm[i]@du[i]
-                                            +self.Bp[i]@du[i+1]
-                                            +self.s[i]*dT[i]
-                                            +x_prop[i]-x[i+1]
-                                            )
-            constraints.append(dT[i]+T[i]>=300/N)
-            constraints.append(dT[i]+T[i]<=800/N)
-            constraints.append(dT[i]<= 100/N)
-            constraints.append(dT[i]>= -100/N)
+            constraints.append(cvx.norm(dx_cvx[i]) + cvx.norm(du_cvx[i])<=rho[i])
+            # constraints.append(cvx.norm(dx[i]) + cvx.norm(du[i])<=rho[i])
 
 
         # cost
@@ -137,13 +141,17 @@ class SCP_buffer_deviation(Scvx):
 
         # final time TODO : should change it to general case
         objective.append(self.w_c * (cvx.sum(dT)+np.sum(T)))
-        for i in range(0,N+1) :
-            objective_buffer.append(self.w_bf*(cvx.quad_form(bf[i],np.eye(ih))))
-            objective_tr.append(self.w_tr*(cvx.quad_form(dx_cvx[i],np.eye(ix))+
-            cvx.quad_form(du_cvx[i],np.diag([1,1,1]))) )
+        # for i in range(0,N+1) :
+        #     objective_buffer.append(self.w_bf*(cvx.quad_form(bf[i],np.eye(ih))))
+        #     objective_tr.append(self.w_tr*(cvx.quad_form(dx_cvx[i],np.eye(ix))+
+        #                           cvx.quad_form(du_cvx[i],np.diag([1,1,1]))))
+        # objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[0],np.eye(ix))))
+        # objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[1],np.eye(ix))))
 
-        objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[0],np.eye(ix))))
-        objective_buffer.append(self.w_bf_b*(cvx.quad_form(bf_b[1],np.eye(ix))))
+        # objective_buffer.append(self.w_bf*(cvx.norm(cvx.vec(bf_b)) + cvx.norm(cvx.vec(bf))     ))
+        objective_buffer.append(self.w_bf*(cvx.norm(cvx.vec(bf_b))))
+        objective_tr.append(self.w_tr * cvx.norm(rho))
+
 
         l = cvx.sum(objective)
         l_bf = cvx.sum(objective_buffer)
@@ -236,11 +244,12 @@ class SCP_buffer_deviation(Scvx):
                 start = time.time()
                 self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop = self.model.diff_discrete_foh_var_vectorized(self.x[0:N,:],self.u,self.T)
                 # self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop = self.model.diff_discrete_foh_var(self.x[0:N,:],self.u,self.T)
-                # remove small element
-                eps_machine = np.finfo(float).eps
-                self.A[np.abs(self.A) < eps_machine] = 0
-                self.Bm[np.abs(self.Bm) < eps_machine] = 0
-                self.Bp[np.abs(self.Bp) < eps_machine] = 0
+                self.print_eigenvalue(self.A)
+                # # remove small element
+                # eps_machine = np.finfo(float).eps
+                # self.A[np.abs(self.A) < eps_machine] = 0
+                # self.Bm[np.abs(self.Bm) < eps_machine] = 0
+                # self.Bp[np.abs(self.Bp) < eps_machine] = 0
                 flgChange = False
                 pass
             time_derivs = (time.time() - start)
@@ -260,7 +269,8 @@ class SCP_buffer_deviation(Scvx):
 
                 expected = self.c + self.cbf + self.ctr - l - l_bf - l_tr
                 # check the boundary condtion
-                bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
+                bc_error_norm = np.max(np.abs(self.xnew-self.xbar))
+                # bc_error_norm = np.linalg.norm(self.xnew[-1,self.const.idx_bc_f]-self.xf[self.const.idx_bc_f],2)
 
                 if  bc_error_norm >= self.tol_bc :
                     # print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))

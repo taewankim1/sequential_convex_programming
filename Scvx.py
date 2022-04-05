@@ -341,7 +341,17 @@ class Scvx:
                 total_num_iter = iteration+1
 
         return self.xnew,self.unew,self.xbar,self.ubar,total_num_iter,flag_boundary,l,l_vc,l_tr
-        
+    def print_eigenvalue(self,A_) :
+        eig,eig_vec = np.linalg.eig(A_)
+        print("(discrete) eigenvalue of A",np.max(np.real(eig)))
+        if self.model.type_linearization == "numeric_central" :
+            A,B = self.model.diff_numeric_central(self.x,self.u)
+        elif self.model.type_linearization == "numeric_forward" :
+            A,B = self.model.diff_numeric(self.x,self.u)
+        elif self.model.type_linearization == "analytic" :
+            A,B = self.model.diff(self.x,self.u)
+        eig,eig_vec = np.linalg.eig(A)
+        print("(continuous) eigenvalue of A",np.max(np.real(eig)))
 
 
         
