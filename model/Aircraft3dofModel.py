@@ -150,6 +150,92 @@ class Aircraft3dof(OptimalcontrolModel):
         fu[:,5,1] = -50.7004654522744*CL*Sw*v*(1 - 2.25237731658222e-5*rz)**5.256*np.cos(phi)/(m*(82.667366 - 0.001861981*rz)*np.cos(gamma))
         return fx.squeeze(),fu.squeeze()
 
+class Aircraft3dofActuatorFOS(OptimalcontrolModel):
+    def __init__(self,name,ix,iu,tau,linearization="numeric_central"):
+        super().__init__(name,ix,iu,linearization)
+        self.m = 288938
+        self.g = 9.8
+        self.Sw = 510.97
+        self.CD0 = 0.022
+        self.K = 0.045
+        self.T_max = 1126.3 * 1e3
+        # self.m = 49940
+        # self.g = 9.8
+        # self.Sw = 112
+        # self.CD0 = 0.0197
+        # self.K = 0.0459
+        # self.T_max = 137.8 * 1e3
+        self.tau = tau
+        
+    def forward(self,x,u,idx=None):
+        xdim = np.ndim(x)
+        if xdim == 1: # 1 step state & input
+            N = 1
+            x = np.expand_dims(x,axis=0)
+        else :
+            N = np.size(x,axis = 0)
+        udim = np.ndim(u)
+        if udim == 1 :
+            u = np.expand_dims(u,axis=0)
+     
+        # state & input
+        rx = x[:,0]
+        ry = x[:,1]
+        rz = x[:,2]
+        v = x[:,3] # speed
+        gamma = x[:,4] # path angle
+        psi = x[:,5] # velocity heading
+        thrust = x[:,6]
+        
+        CL = u[:,0] # lift coefficient
+        phi = u[:,1] # bank angle
+        thrust_cmd = u[:,2] # thrust
+
+        # density
+        def get_density(rz) :
+            # flag_1 = rz < 11000 
+            T1 = 15.04 - 0.00649 * rz # celsius
+            p1 = 101.29 * np.power((T1+273.1)/288.08,5.256)
+            rho1 = p1 / (0.2869 * (T1 + 273.1))
+
+            # flag_2 = np.logical_and(rz >= 11000, rz<25000)
+            # T2 = -56.46 # not used
+            # p2 = 22.65 * np.exp(1.73-0.000157 * rz)
+            # rho2 = p2 / (0.2869 * (T2 + 273.1))
+
+            # flag_3 = rz >= 25000
+            # T3 = -131.21 + 0.00299 * rz
+            # p3 = 2.488 * np.power((T1+273.1)/216.6,-11.388)
+            # rho3 = p3 / (0.2869 * (T3 + 273.1))
+            # return rho1*flag_1 + rho2*flag_2 + rho3*flag_3
+            return rho1
+        # rho = get_density(rz)
+        # rho = 1.225
+
+        # Lift & drag force
+        # L = 0.5 * rho * v * v * self.Sw * CL
+        # D = 0.5 * rho * v * v * self.Sw * (self.CD0 + self.K  * CL * CL)
+        
+        # output
+        f = np.zeros_like(x)
+        # f[:,0] = v * np.cos(gamma) * np.cos(psi)
+        # f[:,1] = v * np.cos(gamma) * np.sin(psi)
+        # f[:,2] = v * np.sin(gamma)
+        # f[:,3] = 1 / self.m * (thrust - D - self.m * self.g * np.sin(gamma))
+        # f[:,4] = 1 /(self.m * v) * (L * np.cos(phi) - self.m * self.g * np.cos(gamma)) 
+        # f[:,5] = - L * np.sin(phi) / (self.m * v * np.cos(gamma))
+
+        m,g,Sw,CD0,K,T_max = self.m,self.g,self.Sw,self.CD0,self.K,self.T_max
+
+        f[:,0] = v*np.cos(gamma)*np.cos(psi)
+        f[:,1] = v*np.sin(psi)*np.cos(gamma)
+        f[:,2] = v*np.sin(gamma)
+        f[:,3] = (-50.7004654522744*Sw*v**2*(1 - 2.25237731658222e-5*rz)**5.256*(CD0 + CL**2*K)/(82.667366 - 0.001861981*rz) + T_max*thrust - g*m*np.sin(gamma))/m
+        f[:,4] = (50.7004654522744*CL*Sw*v**2*(1 - 2.25237731658222e-5*rz)**5.256*np.cos(phi)/(82.667366 - 0.001861981*rz) - g*m*np.cos(gamma))/(m*v)
+        f[:,5] = -50.7004654522744*CL*Sw*v*(1 - 2.25237731658222e-5*rz)**5.256*np.sin(phi)/(m*(82.667366 - 0.001861981*rz)*np.cos(gamma))
+        f[:,6] = 1 / self.tau * (thrust_cmd-thrust)
+
+        return f
 
 class Aircraft3dofContDensity(OptimalcontrolModel):
     def __init__(self,name,ix,iu,linearization="numeric_central"):

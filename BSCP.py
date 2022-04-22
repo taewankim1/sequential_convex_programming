@@ -11,11 +11,10 @@ def print_np(x):
 
 import cost
 import model
-from Scvx import Scvx
-
+from SCP import SCP
 from Scaling import TrajectoryScaling
 
-class SCP_buffer_deviation(Scvx):
+class BSCP(SCP):
     def __init__(self,name,horizon,tf,maxIter,Model,Cost,Const,Scaling=None,type_discretization='zoh',
                         w_c=1,w_bf=1e4,w_tr=1e-3,tol_bf=1e-10,tol_tr=1e-3,tol_bc=1e-3,
                         flag_policyopt=False,verbosity=True):

@@ -26,6 +26,10 @@ class AircraftKinematics(OptimalcontrolConstraints):
         self.v_max = 270
         self.gamma_min = -np.deg2rad(20)
         self.gamma_max = 0
+        self.gamma_dot_min = -np.deg2rad(5)
+        self.gamma_dot_max = np.deg2rad(5)
+        self.psi_dot_min = -np.deg2rad(5)
+        self.psi_dot_max = np.deg2rad(5)
         
     def forward(self,x,u,xbar=None,ubar=None,final=False):
         # state & input
@@ -47,6 +51,10 @@ class AircraftKinematics(OptimalcontrolConstraints):
         h.append(v<=self.v_max)
         h.append(gamma>=self.gamma_min)
         h.append(gamma<=self.gamma_max)
+        h.append(gamma_dot>=self.gamma_dot_min)
+        h.append(gamma_dot<=self.gamma_dot_max)
+        h.append(psi_dot>=self.psi_dot_min)
+        h.append(psi_dot<=self.psi_dot_max)
         return h
 
     def bc_final(self,x_cvx,xf):

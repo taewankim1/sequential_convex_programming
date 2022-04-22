@@ -12,7 +12,7 @@ def print_np(x):
 
 from constraints import OptimalcontrolConstraints
 
-class Aircraft3dof(OptimalcontrolConstraints):
+class Aircraft3dofNondimension(OptimalcontrolConstraints):
     def __init__(self,name,ix,iu):
         super().__init__(name,ix,iu)
         self.idx_bc_f = slice(0, ix)
@@ -21,12 +21,19 @@ class Aircraft3dof(OptimalcontrolConstraints):
         self.phi_min = -np.deg2rad(15)
         self.phi_max = np.deg2rad(15)
         self.T_min = 0
-        self.T_max = 1#1126.3 * 1e3
+        self.T_max = 1126.3 * 1e3
+
         self.v_min = 95
         self.v_max = 270
+
         self.gamma_min = -np.deg2rad(30)
         self.gamma_max = np.deg2rad(30) * 0
 
+        self.ih = 11
+
+    def set_scale(self,scl_v,scl_f) :
+        self.scl_v = scl_v
+        self.scl_f = scl_f
         
     def forward(self,x,u,xbar=None,ubar=None,final=False):
         # state & input
@@ -42,10 +49,10 @@ class Aircraft3dof(OptimalcontrolConstraints):
         thrust = u[2] # thrust
 
         # # scale
-        T_min = self.T_min 
-        T_max = self.T_max
-        v_max = self.v_max
-        v_min = self.v_min
+        T_min = self.T_min / self.scl_f
+        T_max = self.T_max / self.scl_f
+        v_max = self.v_max / self.scl_v
+        v_min = self.v_min / self.scl_v
 
         h = []
         h.append(CL>=self.CL_min)
@@ -61,33 +68,7 @@ class Aircraft3dof(OptimalcontrolConstraints):
         h.append(rz>=0)
         return h
 
-
-
-class Aircraft3dofObstacleAvoidance(Aircraft3dof):
-    def __init__(self,name,ix,iu,c,H):
-        super().__init__(name,ix,iu)
-        self.c = c
-        self.H = H
-
-        
-    def forward(self,x,u,xbar=None,ubar=None,final=False):
-        h = super().forward(x,u,xbar,ubar,final)
-
-        # obstacle avoidance
-        def get_obs_const(c1,H1) :
-            return (1 - np.linalg.norm(H1@(xbar[0:2]-c1)) -
-            (H1.T@H1@(xbar[0:2]-c1)/np.linalg.norm(H1@(xbar[0:2]-c1))).T@(x[0:2]-xbar[0:2])\
-            <=0)
-        if self.H is not None :
-            for c1,H1 in zip(self.c,self.H) :
-                h.append(get_obs_const(c1,H1))
-        return h
-
-class Aircraft3dofActuatorFOS(Aircraft3dof):
-    def __init__(self,name,ix,iu):
-        super().__init__(name,ix,iu)
-        
-    def forward(self,x,u,xbar=None,ubar=None,final=False):
+    def forward_buffer(self,x,u,bf):
         # state & input
         rx = x[0]
         ry = x[1]
@@ -95,31 +76,29 @@ class Aircraft3dofActuatorFOS(Aircraft3dof):
         v = x[3] # speed
         gamma = x[4] # path angle
         psi = x[5] # velocity heading
-        thrust = x[6]
         
         CL = u[0] # lift coefficient
         phi = u[1] # bank angle
-        thrust_cmd = u[2] # thrust
-
-        # # scale
-        T_min = self.T_min 
-        T_max = self.T_max
-        v_max = self.v_max
-        v_min = self.v_min
+        thrust = u[2] # thrust
 
         h = []
-        h.append(CL>=self.CL_min)
-        h.append(CL<=self.CL_max)
-        h.append(phi>=self.phi_min)
-        h.append(phi<=self.phi_max)
-        h.append(thrust>=T_min)
-        h.append(thrust<=T_max)
-        h.append(v>=v_min)
-        h.append(v<=v_max)
-        h.append(gamma>=self.gamma_min)
-        h.append(gamma<=self.gamma_max)
-        h.append(rz>=0)
-        h.append(thrust_cmd>=0)
+        h.append(CL>=bf[0] + self.CL_min)
+        h.append(CL+bf[1]<=self.CL_max)
+        h.append(phi>=bf[2]+self.phi_min)
+        h.append(phi+bf[3]<=self.phi_max)
+        h.append(thrust>=bf[4]+self.T_min)
+        h.append(thrust+bf[5]<=self.T_max)
+        h.append(v>=bf[6]+self.v_min)
+        h.append(v+bf[7]<=self.v_max)
+        h.append(gamma>=bf[8]+self.gamma_min)
+        h.append(gamma+bf[9]<=self.gamma_max)
+        h.append(rz >= bf[10])
+        return h
+
+    def bc_final(self,x_cvx,xf):
+        h = []
+        h.append(x_cvx == xf)
+
         return h
 
 class Aircraft3dofStateTriggered(OptimalcontrolConstraints):
@@ -201,6 +180,7 @@ class Aircraft3dofStateTriggered(OptimalcontrolConstraints):
         h.append(x_cvx == xf)
 
         return h
+
 
 
 class Aircraft3dofApprox(OptimalcontrolConstraints):

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 import random
-import cvxpy as cp
+import cvxpy as cvx
 
 def print_np(x):
     print ("Type is %s" % (type(x)))
@@ -15,22 +15,26 @@ from cost import OptimalcontrolCost
 class Aircraft3dof(OptimalcontrolCost):
     def __init__(self,name,ix,iu,N):
         super().__init__(name,ix,iu,N)
+        self.R = np.eye(iu)
+        self.R[0,0] = 0
+        self.R[1,1] = 0
 
-    def estimate_cost(self,x,u):
-        # dimension
-        ndim = np.ndim(x)
-        if ndim == 1: # 1 step state & input
-            N = 1
-            x = np.expand_dims(x,axis=0)
-            u = np.expand_dims(u,axis=0)
-        else :
-            N = np.size(x,axis = 0)
-        cost_total = u[:,2]
-        return cost_total
+    # def estimate_cost(self,x,u):
+    #     # dimension
+    #     ndim = np.ndim(x)
+    #     if ndim == 1: # 1 step state & input
+    #         N = 1
+    #         x = np.expand_dims(x,axis=0)
+    #         u = np.expand_dims(u,axis=0)
+    #     else :
+    #         N = np.size(x,axis = 0)
+    #     cost_total = u[:,2]
+    #     return cost_total
 
-    def estimate_final_cost(self,x,u) :
-        return self.estimate_cost(x,u)
+    # def estimate_final_cost(self,x,u) :
+    #     return self.estimate_cost(x,u)
         
     def estimate_cost_cvx(self,x,u,idx=0):
-        cost_total = u[2]
+        cost_total = cvx.quad_form(u,self.R)
+        # cost_total = u[2]
         return cost_total
