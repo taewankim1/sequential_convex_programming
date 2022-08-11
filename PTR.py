@@ -3,15 +3,10 @@ from scipy.integrate import solve_ivp
 import numpy as np
 import cvxpy as cvx
 import time
-import random
 def print_np(x):
     print ("Type is %s" % (type(x)))
     print ("Shape is %s" % (x.shape,))
     # print ("Values are: \n%s" % (x))
-
-import cost
-import model
-import IPython
 
 from Scaling import TrajectoryScaling
 
@@ -79,11 +74,42 @@ class PTR:
         self.cvcnew = 0
         self.ctrnew = 0
 
+
     def get_model(self) :
         return self.A,self.B,self.s,self.z,self.vc
 
-    def forward_full(self,x0,u,iteration) :
+
+    def get_linearized_matrices(self,x,u,delT,tf) :
+        assert abs(delT*self.N - tf) < 1e-6
+        # differentiate dynamics and cost
+        if self.type_discretization == 'zoh' :
+            A,B,s,z,x_prop_n = self.model.diff_discrete_zoh(x[0:self.N,:],u[0:self.N,:],delT,tf)
+            x_prop = np.squeeze(A@np.expand_dims(x[0:self.N,:],2) +
+                            B@np.expand_dims(u[0:self.N,:],2) + 
+                            np.expand_dims(tf*s+z,2))
+            Bm = np.copy(B)
+            Bp = np.copy(B)
+        elif self.type_discretization == 'foh' :
+            A,Bm,Bp,s,z,x_prop_n = self.model.diff_discrete_foh(x[0:self.N,:],u,delT,tf)
+            x_prop = np.squeeze(A@np.expand_dims(x[0:self.N,:],2) +
+                            Bm@np.expand_dims(u[0:self.N,:],2) + 
+                            Bp@np.expand_dims(u[1:self.N+1,:],2) + 
+                            np.expand_dims(tf*s+z,2))
+            B = np.copy(Bm)
+
+        # remove small element
+        eps_machine = np.finfo(float).eps
+        A[np.abs(A) < eps_machine] = 0
+        B[np.abs(B) < eps_machine] = 0
+        Bm[np.abs(Bm) < eps_machine] = 0
+        Bp[np.abs(Bp) < eps_machine] = 0
+        return A,B,Bm,Bp,s,z,x_prop,x_prop_n
+
+    # TODO - merge multiple and single. 
+    # Instead, accept a variable that determines if it is single or multiple
+    def forward_multiple(self,x,u,tf,iteration) :
         N = self.N
+        delT = tf/N
         ix = self.model.ix
         iu = self.model.iu
 
@@ -91,8 +117,36 @@ class PTR:
             if self.type_discretization == "zoh" :
                 u = um
             elif self.type_discretization == "foh" :
-                alpha = (self.delT - t) / self.delT
-                beta = t / self.delT
+                alpha = (delT - t) / delT
+                beta = t / delT
+                u = alpha * um + beta * up
+            return np.squeeze(self.model.forward(x,u))
+
+        xnew = np.zeros((N+1,ix))
+        xnew[0] = x[0]
+
+        for i in range(N) :
+            if iteration < 5 : # TODO make # of iteration be a variable
+                sol = solve_ivp(dfdt,(0,delT),x[i],args=(u[i],u[i+1]))
+            else :
+                sol = solve_ivp(dfdt,(0,delT),x[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+            xnew[i+1] = sol.y[:,-1]
+
+        return xnew,np.copy(u)
+
+
+    def forward_single(self,x0,u,tf,iteration) :
+        N = self.N
+        delT = tf/N
+        ix = self.model.ix
+        iu = self.model.iu
+
+        def dfdt(t,x,um,up) :
+            if self.type_discretization == "zoh" :
+                u = um
+            elif self.type_discretization == "foh" :
+                alpha = (delT - t) / delT
+                beta = t / delT
                 u = alpha * um + beta * up
             return np.squeeze(self.model.forward(x,u))
 
@@ -100,13 +154,14 @@ class PTR:
         xnew[0] = x0
 
         for i in range(N) :
-            if iteration < 10 :
-                sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]))
+            if iteration < 5 : # TODO make # of iteration be a variable
+                sol = solve_ivp(dfdt,(0,delT),xnew[i],args=(u[i],u[i+1]))
             else :
-                sol = solve_ivp(dfdt,(0,self.delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
+                sol = solve_ivp(dfdt,(0,delT),xnew[i],args=(u[i],u[i+1]),method='RK45',rtol=1e-6,atol=1e-10)
             xnew[i+1] = sol.y[:,-1]
 
-        return xnew,u
+        return xnew,np.copy(u)
+
 
     def cvxopt(self):
         # TODO - we can get rid of most of loops here
@@ -242,81 +297,44 @@ class PTR:
         self.ctr = 0
 
         # iterations starts!!
-        flgChange = True
         total_num_iter = 0
         flag_boundary = False
         for iteration in range(self.maxIter) :
+            # step1. differentiate dynamics and cost
+            self.A,self.B,self.Bm,self.Bp,self.s,self.z,self.x_prop,self.x_prop_n = self.get_linearized_matrices(self.x,self.u,self.delT,self.tf)
 
-            # differentiate dynamics and cost
-            if flgChange == True:
-                start = time.time()
-                if self.type_discretization == 'zoh' :
-                    self.A,self.B,self.s,self.z,self.x_prop_n = self.model.diff_discrete_zoh(self.x[0:N,:],self.u[0:N,:],self.delT,self.tf)
-                    self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
-                                    self.B@np.expand_dims(self.u[0:N,:],2) + 
-                                    np.expand_dims(self.tf*self.s+self.z,2))
-                elif self.type_discretization == 'foh' :
-                    self.A,self.Bm,self.Bp,self.s,self.z,self.x_prop_n = self.model.diff_discrete_foh(self.x[0:N,:],self.u,self.delT,self.tf)
-                    self.x_prop = np.squeeze(self.A@np.expand_dims(self.x[0:N,:],2) +
-                                    self.Bm@np.expand_dims(self.u[0:N,:],2) + 
-                                    self.Bp@np.expand_dims(self.u[1:N+1,:],2) + 
-                                    np.expand_dims(self.tf*self.s+self.z,2))
-
-                # remove small element
-                eps_machine = np.finfo(float).eps
-                self.A[np.abs(self.A) < eps_machine] = 0
-                self.B[np.abs(self.B) < eps_machine] = 0
-                self.Bm[np.abs(self.Bm) < eps_machine] = 0
-                self.Bp[np.abs(self.Bp) < eps_machine] = 0
-
-                flgChange = False
-                pass
-            time_derivs = (time.time() - start)
             # step2. cvxopt
-            # try :
-            prob_status,l,l_vc,l_tr,self.xbar,self.ubar,self.vcnew,error = self.cvxopt()
+            prob_status,l,l_vc,l_tr,self.xnew,self.unew,self.vcnew,error = self.cvxopt()
             if error == True :
                 total_num_iter = 1e5
                 break
 
-            # step3. line-search to find new control sequence, trajectory, cost
-            flag_cvx = False
-            if prob_status == cvx.OPTIMAL or prob_status == cvx.OPTIMAL_INACCURATE :
-                flag_cvx = True
-                start = time.time()
-                self.xnew,self.unew = self.forward_full(self.xbar[0,:],self.ubar,iteration)
+            # step3. evaluate step
+            reduction = self.c + self.cvc + self.ctr - l - l_vc - l_tr
+            # dynamical feasibility
+            # self.xfwd,self.ufwd = self.forward_single(self.xnew[0,:],self.unew,self.tf,iteration)
+            self.xfwd,self.ufwd = self.forward_multiple(self.xnew,self.unew,self.tf,iteration)
 
-                expected = self.c + self.cvc + self.ctr - l - l_vc - l_tr
-                # check the boundary condtion
-                bc_error_norm = np.max(np.abs(self.xnew-self.xbar))
+            # check the boundary condtion
+            bc_error_norm = np.max(np.linalg.norm(self.xfwd-self.xnew,axis=1))
 
-                if  bc_error_norm >= self.tol_bc :
-                    # print("{:12.3g} Boundary conditions are not satisified: just accept this step".format(bc_error_norm))
-                    flag_boundary = False
-                else :
-                    flag_boundary = True
-
-                # if expected < 0 and iteration > 0 and self.verbosity is True:
-                #     print("non-positive expected reduction")
-                time_forward = time.time() - start
+            if  bc_error_norm >= self.tol_bc :
+                flag_boundary = False
             else :
-                print("CVXOPT Failed: should not occur")
-                total_num_iter = 1e5
-                expected = 0
-                break
+                flag_boundary = True
 
             # step4. accept step, draw graphics, print status 
             if self.verbosity == True and self.last_head == True:
                 self.last_head = False
                 print("iteration   total_cost        cost        ||vc||     ||tr||       reduction   w_tr        bounary")
             # accept changes
-            self.x = self.xbar
-            self.u = self.ubar
+            self.x = self.xnew
+            self.u = self.unew
             self.vc = self.vcnew
             self.c = l 
             self.cvc = l_vc 
             self.ctr = l_tr
-            flgChange = True
+
             x_traj.append(self.x)
             u_traj.append(self.u)
             T_traj.append(self.tf)
@@ -324,7 +342,7 @@ class PTR:
             if self.verbosity == True:
                 print("%-12d%-18.3f%-12.3f%-12.3g%-12.3g%-12.3g%-12.3f%-1d(%2.3g)" % ( iteration+1,self.c+self.cvc+self.ctr,
                                                                                     self.c,self.cvc/self.w_vc,self.ctr/self.w_tr,
-                                                                                    expected,self.w_tr,flag_boundary,bc_error_norm))
+                                                                                    reduction,self.w_tr,flag_boundary,bc_error_norm))
             if flag_boundary == True and  \
                             self.ctr/self.w_tr < self.tol_tr and self.cvc/self.w_vc < self.tol_vc :
                 if self.verbosity == True:
@@ -335,8 +353,7 @@ class PTR:
                 print("NOT ENOUGH : reached to max iteration")
                 total_num_iter = iteration+1
 
-        return self.xnew,self.unew,self.xbar,self.ubar,total_num_iter,flag_boundary,l,l_vc,l_tr,x_traj,u_traj,T_traj
-
+        return self.xfwd,self.ufwd,self.x,self.u,total_num_iter,flag_boundary,l,l_vc,l_tr,x_traj,u_traj,T_traj
 
     def print_eigenvalue(self,A_) :
         eig,eig_vec = np.linalg.eig(A_)
