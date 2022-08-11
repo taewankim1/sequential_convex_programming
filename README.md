@@ -1,5 +1,5 @@
-# Successive convexification 
-This reposit is the implementation of successive convexification in Python. The implementation depends on numpy and cvxopt. You can start running the code in notebooks/test_unicycle.ipynb or notebooks/test_RocketLanding3D.ipynb 
+# Sequential convex programming
+This reposit is the implementation of sequential convex programming in Python. The implementation depends on numpy and cvxopt. You can start running the code in notebooks/test_unicycle.ipynb or notebooks/test_RocketLanding3D.ipynb 
 
 ## References
 * Successive Convexification for 6-DoF Mars

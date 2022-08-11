@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-from scipy.integrate import odeint
 from scipy.integrate import solve_ivp
 import numpy as np
 import cvxpy as cvx
@@ -80,12 +79,6 @@ class PTR:
         self.cvcnew = 0
         self.ctrnew = 0
 
-        self.cx = np.zeros((self.N+1,self.model.ix))
-        self.cu = np.zeros((self.N,self.model.iu))
-        self.cxx = np.zeros((self.N+1,self.model.ix,self.model.ix))
-        self.cxu = np.zeros((self.N,self.model.ix,self.model.iu))
-        self.cuu = np.zeros((self.N,self.model.iu,self.model.iu))
-
     def get_model(self) :
         return self.A,self.B,self.s,self.z,self.vc
 
@@ -164,10 +157,9 @@ class PTR:
         objective_rate = []
         w_control = 1e-4
         for i in range(0,N+1) :
-            # objective_rate.append(w_control * cvx.quad_form(x_cvx[i],np.diag([1,1,1,1,1,1])))
             if i < N :
                 objective_vc.append(self.w_vc * cvx.norm(vc[i],1))
-                objective_rate.append(self.w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.diag([1,0.002,0])))
+                objective_rate.append(self.w_rate * cvx.quad_form(u_cvx[i+1]-u_cvx[i],np.eye(iu)))
             objective.append(self.w_c * self.cost.estimate_cost_cvx(Sx@x_cvx[i]+
                 sx,Su@u_cvx[i]+su,i))
             objective_tr.append( self.w_tr * (cvx.quad_form(x_cvx[i] -

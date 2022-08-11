@@ -24,10 +24,10 @@ class UnicycleConstraints(OptimalcontrolConstraints):
         w = u[1]
 
         h = []
-        h.append(v-0.2 <= 0)
-        h.append(v >= -0.2)
-        h.append(w<=np.deg2rad(5))
-        h.append(w>=-np.deg2rad(5))
+        h.append(v-4.0 <= 0)
+        h.append(v >= -4.0)
+        h.append(w<=2.0)
+        h.append(w>=-2.0)
 
         return h
 
