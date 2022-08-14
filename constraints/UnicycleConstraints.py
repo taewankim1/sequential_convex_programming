@@ -24,8 +24,8 @@ class UnicycleConstraints(OptimalcontrolConstraints):
         w = u[1]
 
         h = []
-        h.append(v-4.0 <= 0)
-        h.append(v >= -4.0)
+        h.append(v-2.0 <= 0)
+        h.append(v >= -2.0)
         h.append(w<=2.0)
         h.append(w>=-2.0)
 
