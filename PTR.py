@@ -23,6 +23,7 @@ class PTR:
         self.delT = tf/horizon
         if Scaling is None :
             self.Scaling = TrajectoryScaling() 
+            self.Scaling.S_sigma = 1
             self.flag_update_scale = True
         else :
             self.Scaling = Scaling
