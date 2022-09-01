@@ -231,9 +231,9 @@ class PTR:
         prob = cvx.Problem(cvx.Minimize(l_all), constraints)
 
         error = False
-        # prob.solve(verbose=False,solver=cvx.MOSEK)
+        prob.solve(verbose=False,solver=cvx.MOSEK)
         # prob.solve(verbose=False,solver=cvx.CPLEX)
-        prob.solve(verbose=False,solver=cvx.GUROBI)
+        # prob.solve(verbose=False,solver=cvx.GUROBI)
         # prob.solve(verbose=False,solver=cvx.ECOS)
         # prob.solve(verbose=False,solver=cvx.SCS)
 
